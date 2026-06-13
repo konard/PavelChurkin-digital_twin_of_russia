@@ -263,8 +263,8 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         <div className="brand login-brand">DTR</div>
         <h1>Цифровой двойник России</h1>
         <p className="login-sub">
-          Открытый контур v0.1. Войдите как оператор платформы или другая роль —
-          либо продолжите как гость без пароля.
+          Открытый контур v0.1.3. Войдите как оператор платформы или другая роль
+          — либо продолжите как гость без пароля.
         </p>
 
         <button type="button" className="guest-button" onClick={enterAsGuest}>
@@ -737,7 +737,7 @@ function Workspace({
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h1>Цифровой двойник России v0.1</h1>
+            <h1>Цифровой двойник России v0.1.3</h1>
             <p>
               Открытый контур: каталоги, сценарии, отчёты и аудит на
               демо-данных.
