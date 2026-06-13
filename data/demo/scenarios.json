@@ -1,0 +1,116 @@
+[
+  {
+    "id": "regional-passport",
+    "title": "1.1 Regional resource passport",
+    "category": "A",
+    "version": "scenario-1.1-v0.1",
+    "model_version": "passport-model-v0.1",
+    "contour": "open",
+    "description": "Open-contour map, KPIs and limitations for a pilot region.",
+    "parameters_schema": {
+      "type": "object",
+      "required": ["region"],
+      "properties": { "region": { "type": "string" } }
+    },
+    "data_requirements": [
+      "osm-geofabrik",
+      "rosstat-economy-demography",
+      "fedstat-indicators",
+      "fns-opendata"
+    ],
+    "demo": true
+  },
+  {
+    "id": "workforce-deficit",
+    "title": "5.1 Workforce deficit map",
+    "category": "A",
+    "version": "scenario-5.1-v0.1",
+    "model_version": "labor-gap-model-v0.1",
+    "contour": "open",
+    "description": "Compares open vacancies, demographics and education pipeline by municipality.",
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "region": { "type": "string" },
+        "profession": { "type": "string" }
+      }
+    },
+    "data_requirements": [
+      "trudvsem-opendata",
+      "trudvsem-api",
+      "rosstat-economy-demography",
+      "minpros-schools",
+      "minobrnauki-programs"
+    ],
+    "demo": true
+  },
+  {
+    "id": "site-comparison",
+    "title": "3.2 Production site comparison",
+    "category": "A",
+    "version": "scenario-3.2-v0.1",
+    "model_version": "site-ranking-model-v0.1",
+    "contour": "open",
+    "description": "Ranks demo sites by transport access, workforce availability and environmental risk.",
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "region": { "type": "string" },
+        "sites": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "data_requirements": [
+      "osm-geofabrik",
+      "rosstat-economy-demography",
+      "trudvsem-opendata",
+      "meteo-climate",
+      "nasa-firms-api"
+    ],
+    "demo": true
+  },
+  {
+    "id": "emergency-risk",
+    "title": "7.1 Basic emergency risk",
+    "category": "A",
+    "version": "scenario-7.1-v0.1",
+    "model_version": "emergency-risk-model-v0.1",
+    "contour": "open",
+    "description": "Combines climate rows, fire hotspots and open infrastructure context.",
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "region": { "type": "string" },
+        "period": { "type": "string" }
+      }
+    },
+    "data_requirements": ["meteo-climate", "nasa-firms-api", "osm-geofabrik"],
+    "demo": true
+  },
+  {
+    "id": "relocation-calculator",
+    "title": "14.2 Relocation calculator",
+    "category": "A",
+    "version": "scenario-14.2-v0.1",
+    "model_version": "relocation-model-v0.1",
+    "contour": "open",
+    "description": "Compares cities by income, housing proxy, infrastructure and climate context.",
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "cities": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "data_requirements": [
+      "rosstat-economy-demography",
+      "osm-geofabrik",
+      "meteo-climate",
+      "gar-fias-addresses"
+    ],
+    "demo": true
+  }
+]
