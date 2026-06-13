@@ -35,7 +35,37 @@ docs/                 Архитектура и заметки по реализ
 .github/workflows/    CI для pull request-ов
 ```
 
+## Настройка окружения (.env)
+
+Файл `.env` в репозиторий не входит — его нужно создать из шаблона `.env.example`:
+
+```bash
+cp .env.example .env        # Linux/macOS
+copy .env.example .env      # Windows (cmd)
+```
+
+Значений по умолчанию достаточно для запуска через `make up`: docker compose
+читает `.env.example`, а ваш `.env` (если создан) переопределяет нужные строки.
+Каждая переменная описана прямо в `.env.example`. Ключевые из них:
+
+- `DATABASE_URL`, `REDIS_URL`, `S3_*` — подключения к PostgreSQL/PostGIS, Redis и
+  MinIO. Внутри docker compose используются имена сервисов (`postgis`, `redis`,
+  `minio`); для запуска без Docker замените их на `localhost`.
+- `NASA_FIRMS_MAP_KEY` — необязательный ключ для слоёв пожарной активности.
+  Бесплатный ключ выдаётся на
+  [странице NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/api/map_key/).
+- `OPEN_DATA_REGION` — регион открытых данных по умолчанию для демо-сценариев.
+
 ## Локальная разработка
+
+Цели `make install`, `make lint`, `make test` и `make seed-open-data` запускаются
+**на хосте** и требуют установленных Python 3.12+ и Node.js 20+. Сначала выполните
+`make install`, иначе команды упадут с ошибкой «не найден файл» (`pytest`/`ruff`)
+или кодом `9009` (`python`) — это значит, что инструмент не установлен или не
+добавлен в `PATH`. На Windows проверьте установку командами `python --version` и
+`node --version`; если используется лаунчер `py`, добавьте Python в `PATH`. Если
+локальный toolchain ставить не хочется, пользуйтесь Docker-стеком (`make up`) —
+там все зависимости уже собраны.
 
 Установка и полное тестирование:
 
