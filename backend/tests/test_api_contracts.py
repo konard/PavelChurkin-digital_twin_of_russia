@@ -46,7 +46,7 @@ def test_guest_mode_is_read_only_for_scenario_runs_and_api_keys() -> None:
     key_response = client.post("/api/v1/auth/keys", json={"name": "demo"})
 
     assert run_response.status_code == 403
-    assert "read-only" in run_response.json()["detail"]
+    assert "только для чтения" in run_response.json()["detail"]
     assert key_response.status_code == 403
 
 
@@ -75,10 +75,10 @@ def test_markdown_export_contains_source_block_and_versions() -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/markdown")
     body = response.text
-    assert "Sources and Limitations" in body
-    assert "Dataset version" in body
-    assert "license:" in body
-    assert "This report is incomplete by design" in body
+    assert "Источники и ограничения" in body
+    assert "Версия датасета" in body
+    assert "ограничение:" in body
+    assert "Данный отчёт намеренно неполный" in body
 
 
 def test_audit_hash_chain_verification_endpoint() -> None:

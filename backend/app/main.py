@@ -23,9 +23,9 @@ from backend.app.schemas import (
 from backend.app.store import DemoStore
 
 app = FastAPI(
-    title="Digital Twin of Russia API",
+    title="API Цифрового двойника России",
     version="0.1.0",
-    summary="Open-contour v0.1 API with catalog, layers, scenarios, exports and audit.",
+    summary="API открытого контура v0.1 с каталогом, слоями, сценариями, экспортами и аудитом.",
 )
 
 app.add_middleware(
@@ -77,7 +77,7 @@ def get_dataset(dataset_id: str) -> DatasetPassport:
         dataset = store.datasets[dataset_id]
     except KeyError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Датасет не найден"
         ) from exc
     require_open_contour(dataset)
     return dataset
@@ -94,7 +94,7 @@ def list_layers(
 @app.get("/api/v1/tiles/{layer_id}/{z}/{x}/{y}")
 def get_tile(layer_id: str, z: int, x: int, y: int) -> dict:
     if layer_id not in store.layers:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Layer not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Слой не найден")
     features = [
         {
             "type": "Feature",
@@ -127,7 +127,7 @@ def get_object(object_id: str) -> TwinObject:
         return store.objects[object_id]
     except KeyError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Object not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Объект не найден"
         ) from exc
 
 
@@ -144,7 +144,7 @@ def run_scenario(
     x_actor: Annotated[str | None, Header(alias="X-Actor")] = None,
 ) -> ScenarioRun:
     if scenario_id not in store.scenarios:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scenario not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сценарий не найден")
     role = _role(x_role)
     require_write_role(role)
     return store.create_run(
@@ -162,7 +162,7 @@ def get_run(run_id: str) -> ScenarioRun:
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Run not found",
+            detail="Запуск не найден",
         ) from exc
 
 
@@ -174,7 +174,7 @@ def export_run(
     x_actor: Annotated[str | None, Header(alias="X-Actor")] = None,
 ) -> Response:
     if run_id not in store.runs:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Запуск не найден")
     run = store.runs[run_id]
     role = _role(x_role)
     store.audit_log.append(
@@ -212,7 +212,7 @@ def create_api_key(
     if role not in {"developer", "operator"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="API keys are available for developer and operator roles in v0.1.",
+            detail="API-ключи доступны для ролей разработчика и оператора в v0.1.",
         )
     return ApiKeyResponse(
         name=request.name,
@@ -226,7 +226,7 @@ def create_api_key(
 def list_audit(x_role: Annotated[str | None, Header(alias="X-Role")] = None) -> list[AuditEntry]:
     role = _role(x_role)
     if role not in {"developer", "operator"}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Audit access denied")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступ к аудиту запрещён")
     return store.audit_log.entries
 
 
@@ -239,10 +239,10 @@ def verify_audit() -> dict[str, bool]:
 def limitations() -> dict[str, list[str]]:
     return {
         "v0.1": [
-            "Only the open contour is enabled.",
-            "No personal data or critical-infrastructure schemes are exposed.",
-            "Demo runs are deterministic and use seeded open-data passports.",
-            "Live ETL connectors are scaffolded; production use must re-check source URLs "
-            "and licenses.",
+            "Включён только открытый контур.",
+            "Персональные данные и схемы критической инфраструктуры не раскрываются.",
+            "Демо-запуски детерминированы и используют сидированные паспорта открытых данных.",
+            "ETL-коннекторы живых данных созданы как каркас; для производственного использования "
+            "необходимо повторно проверить URL источников и лицензии.",
         ]
     }

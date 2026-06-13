@@ -17,10 +17,10 @@ import { fetchDatasets, fetchDemoRun, fetchScenarios } from "./api";
 import type { DatasetPassport, Scenario, ScenarioRun } from "./types";
 
 const qualityLabels: Record<string, string> = {
-  verified: "verified",
-  aggregated: "aggregated",
-  draft: "draft",
-  outdated: "outdated",
+  verified: "проверено",
+  aggregated: "агрегировано",
+  draft: "черновик",
+  outdated: "устарело",
 };
 
 function MapPanel() {
@@ -40,7 +40,7 @@ function MapPanel() {
             features: [
               {
                 type: "Feature",
-                properties: { name: "Open contour aggregate" },
+                properties: { name: "Агрегат открытого контура" },
                 geometry: {
                   type: "Polygon",
                   coordinates: [
@@ -56,12 +56,12 @@ function MapPanel() {
               },
               {
                 type: "Feature",
-                properties: { name: "Workforce cluster" },
+                properties: { name: "Кластер трудовых ресурсов" },
                 geometry: { type: "Point", coordinates: [37.62, 55.75] },
               },
               {
                 type: "Feature",
-                properties: { name: "Risk signal" },
+                properties: { name: "Сигнал риска" },
                 geometry: { type: "Point", coordinates: [37.78, 55.68] },
               },
             ],
@@ -92,7 +92,7 @@ function MapPanel() {
             "circle-color": [
               "match",
               ["get", "name"],
-              "Risk signal",
+              "Сигнал риска",
               "#ea580c",
               "#0f766e",
             ],
@@ -119,7 +119,7 @@ function MapPanel() {
     return () => map.remove();
   }, []);
 
-  return <div ref={ref} className="map-canvas" aria-label="Pilot region map" />;
+  return <div ref={ref} className="map-canvas" aria-label="Карта пилотного региона" />;
 }
 
 function App() {
@@ -141,21 +141,21 @@ function App() {
 
   return (
     <main className="app-shell">
-      <aside className="rail" aria-label="Modules">
+      <aside className="rail" aria-label="Модули">
         <div className="brand">DTR</div>
-        <button aria-label="Map">
+        <button aria-label="Карта">
           <Map size={19} />
         </button>
-        <button aria-label="Scenarios">
+        <button aria-label="Сценарии">
           <Play size={19} />
         </button>
-        <button aria-label="Catalog">
+        <button aria-label="Каталог">
           <Archive size={19} />
         </button>
-        <button aria-label="Reports">
+        <button aria-label="Отчёты">
           <FileDown size={19} />
         </button>
-        <button aria-label="Access">
+        <button aria-label="Доступ">
           <KeyRound size={19} />
         </button>
       </aside>
@@ -171,25 +171,25 @@ function App() {
           </div>
           <div className="status-pill">
             <ShieldCheck size={17} />
-            open contour
+            открытый контур
           </div>
         </header>
 
-        <section className="metrics" aria-label="Readiness metrics">
+        <section className="metrics" aria-label="Метрики готовности">
           <article>
-            <span>datasets</span>
+            <span>датасеты</span>
             <strong>{datasets.length || "..."}</strong>
           </article>
           <article>
-            <span>domains</span>
+            <span>домены</span>
             <strong>{domains.length || "..."}</strong>
           </article>
           <article>
-            <span>scenarios</span>
+            <span>сценарии</span>
             <strong>{scenarios.length || "..."}</strong>
           </article>
           <article>
-            <span>report sources</span>
+            <span>источники отчёта</span>
             <strong>{sourceCount || "..."}</strong>
           </article>
         </section>
@@ -231,10 +231,10 @@ function App() {
             <table>
               <thead>
                 <tr>
-                  <th>Dataset</th>
-                  <th>Domain</th>
-                  <th>Version</th>
-                  <th>Quality</th>
+                  <th>Датасет</th>
+                  <th>Домен</th>
+                  <th>Версия</th>
+                  <th>Качество</th>
                 </tr>
               </thead>
               <tbody>
@@ -263,19 +263,19 @@ function App() {
             </div>
             <p>
               {run?.result.summary ??
-                "Loading precomputed regional passport..."}
+                "Загружается предварительно вычисленный региональный паспорт..."}
             </p>
             <dl>
               <div>
-                <dt>Dataset version</dt>
+                <dt>Версия датасета</dt>
                 <dd>{run?.dataset_version ?? "..."}</dd>
               </div>
               <div>
-                <dt>Model</dt>
+                <dt>Модель</dt>
                 <dd>{run?.model_version ?? "..."}</dd>
               </div>
               <div>
-                <dt>Scenario</dt>
+                <dt>Сценарий</dt>
                 <dd>{run?.scenario_version ?? "..."}</dd>
               </div>
             </dl>

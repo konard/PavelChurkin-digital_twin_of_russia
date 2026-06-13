@@ -15,12 +15,12 @@ def require_open_contour(item: OpenContourItem) -> None:
     if item.contour != "open":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the open contour is enabled in v0.1.",
+            detail="В v0.1 включён только открытый контур.",
         )
     if item.pii_status in {"aggregated", "anonymized"} and (item.k_anonymity or 0) < 5:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Open-contour data must satisfy k-anonymity >= 5.",
+            detail="Данные открытого контура должны удовлетворять условию k-анонимности >= 5.",
         )
 
 
@@ -28,5 +28,5 @@ def require_write_role(role: str) -> None:
     if role == "guest":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Guest demo mode is read-only. Register to run scenarios or create API keys.",
+            detail="Гостевой демо-режим доступен только для чтения. Зарегистрируйтесь для запуска сценариев или создания API-ключей.",
         )

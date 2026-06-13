@@ -1,4 +1,4 @@
-"""open contour schema
+"""схема открытого контура
 
 Revision ID: 0001_open_contour_schema
 Revises:
