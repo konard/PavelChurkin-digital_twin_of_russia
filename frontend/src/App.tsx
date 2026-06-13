@@ -33,6 +33,16 @@ function MapPanel() {
     const style: StyleSpecification = {
       version: 8,
       sources: {
+        basemap: {
+          type: "raster",
+          tiles: [
+            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          ],
+          tileSize: 256,
+          attribution: "© OpenStreetMap contributors",
+        },
         pilot: {
           type: "geojson",
           data: {
@@ -69,6 +79,11 @@ function MapPanel() {
         },
       },
       layers: [
+        {
+          id: "basemap",
+          type: "raster",
+          source: "basemap",
+        },
         {
           id: "pilot-fill",
           type: "fill",
@@ -110,7 +125,6 @@ function MapPanel() {
       center: [37.62, 55.75],
       zoom: 8.3,
       interactive: true,
-      attributionControl: false,
     });
     map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
@@ -145,23 +159,49 @@ function App() {
   );
   const sourceCount = run?.result.sources.length ?? 0;
 
+  const scrollToSection = (id: string) => {
+    document
+      .getElementById(id)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <main className="app-shell">
       <aside className="rail" aria-label="Модули">
         <div className="brand">DTR</div>
-        <button aria-label="Карта">
+        <button
+          type="button"
+          aria-label="Карта"
+          onClick={() => scrollToSection("panel-map")}
+        >
           <Map size={19} />
         </button>
-        <button aria-label="Сценарии">
+        <button
+          type="button"
+          aria-label="Сценарии"
+          onClick={() => scrollToSection("panel-scenarios")}
+        >
           <Play size={19} />
         </button>
-        <button aria-label="Каталог">
+        <button
+          type="button"
+          aria-label="Каталог"
+          onClick={() => scrollToSection("panel-catalog")}
+        >
           <Archive size={19} />
         </button>
-        <button aria-label="Отчёты">
+        <button
+          type="button"
+          aria-label="Отчёты"
+          onClick={() => scrollToSection("panel-report")}
+        >
           <FileDown size={19} />
         </button>
-        <button aria-label="Доступ">
+        <button
+          type="button"
+          aria-label="Доступ"
+          onClick={() => scrollToSection("panel-report")}
+        >
           <KeyRound size={19} />
         </button>
       </aside>
@@ -201,7 +241,7 @@ function App() {
         </section>
 
         <section className="main-grid">
-          <div className="map-pane">
+          <div className="map-pane" id="panel-map">
             <div className="section-title">
               <Layers size={18} />
               <h2>Карта открытого контура</h2>
@@ -209,7 +249,7 @@ function App() {
             <MapPanel />
           </div>
 
-          <div className="scenario-pane">
+          <div className="scenario-pane" id="panel-scenarios">
             <div className="section-title">
               <Activity size={18} />
               <h2>Демо-сценарии</h2>
@@ -229,7 +269,7 @@ function App() {
         </section>
 
         <section className="lower-grid">
-          <div className="catalog-table">
+          <div className="catalog-table" id="panel-catalog">
             <div className="section-title">
               <Archive size={18} />
               <h2>Каталог данных</h2>
@@ -262,7 +302,7 @@ function App() {
             </table>
           </div>
 
-          <div className="report-pane">
+          <div className="report-pane" id="panel-report">
             <div className="section-title">
               <FileDown size={18} />
               <h2>Отчёт</h2>
