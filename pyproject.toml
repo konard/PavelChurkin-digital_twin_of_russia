@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "digital-twin-platform"
-version = "0.1.0"
+version = "0.1.2"
 description = "Open-contour v0.1 prototype for the Digital Twin of Russia"
 readme = "README.md"
 requires-python = ">=3.12"

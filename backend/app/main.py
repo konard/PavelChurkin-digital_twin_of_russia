@@ -24,7 +24,7 @@ from backend.app.store import DemoStore
 
 app = FastAPI(
     title="API Цифрового двойника России",
-    version="0.1.0",
+    version="0.1.2",
     summary="API открытого контура v0.1 с каталогом, слоями, сценариями, экспортами и аудитом.",
 )
 
@@ -56,7 +56,7 @@ def _role(value: str | None) -> Role:
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", version="0.1.0", contour="open")
+    return HealthResponse(status="ok", version="0.1.2", contour="open")
 
 
 @app.get("/api/v1/catalog/datasets", response_model=list[DatasetPassport])
