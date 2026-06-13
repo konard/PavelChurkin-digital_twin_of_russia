@@ -43,7 +43,9 @@ services:
     command: standalone
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      # SequentialExecutor совместим с метаданными SQLite, которые airflow standalone
+      # создаёт по умолчанию. LocalExecutor требует серверную БД и падает на SQLite.
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
     volumes:
       - ./airflow/dags:/opt/airflow/dags:ro
     ports:
@@ -56,8 +58,12 @@ services:
     build:
       context: ..
       dockerfile: backend/Dockerfile
+    # Значения по умолчанию берём из .env.example, а .env (если создан) их переопределяет.
     env_file:
-      - ../.env.example
+      - path: ../.env.example
+        required: false
+      - path: ../.env
+        required: false
     ports:
       - "8000:8000"
     depends_on:
