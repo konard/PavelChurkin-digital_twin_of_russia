@@ -1,12 +1,12 @@
-# Open-Data Limitations
+# Ограничения открытых данных
 
-The first version deliberately keeps the data plane small and reproducible.
+Первая версия намеренно сохраняет небольшой и воспроизводимый слой данных.
 
-- Source URLs and public dataset availability must be rechecked before any real
-  release because open-data catalogs and update cadences change.
-- The current seed is a demo snapshot, not a live ETL mirror.
-- Reports must preserve limitations from every dataset passport.
-- NASA FIRMS integration requires `NASA_FIRMS_MAP_KEY` before live calls.
-- Guests are read-only and can only inspect precomputed demo outputs.
-- No source may enter the public API unless it is marked `contour=open` and
-  passes the gateway checks.
+- URL источников и доступность публичных датасетов необходимо перепроверить перед любым реальным
+  выпуском, поскольку каталоги открытых данных и периодичность обновлений меняются.
+- Текущий сид — демо-снимок, а не живое ETL-зеркало.
+- Отчёты должны сохранять ограничения из каждого паспорта датасета.
+- Интеграция NASA FIRMS требует `NASA_FIRMS_MAP_KEY` перед живыми вызовами.
+- Гости имеют доступ только для чтения и могут просматривать лишь предварительно вычисленные демо-результаты.
+- Ни один источник не может попасть в публичный API, если он не помечен `contour=open` и
+  не проходит проверки шлюза.

@@ -8,7 +8,7 @@ from backend.app.schemas import AuditEntry, Contour, Role
 
 
 class AuditLog:
-    """Append-only audit log with a hash chain suitable for the v0.1 demo."""
+    """Журнал аудита только для добавления с хеш-цепочкой для демо v0.1."""
 
     def __init__(self) -> None:
         self._entries: list[AuditEntry] = []

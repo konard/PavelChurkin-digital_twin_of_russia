@@ -1,43 +1,43 @@
-# Digital Twin of Russia v0.1
+# Цифровой двойник России v0.1
 
-Open-contour prototype for the project described in
-PavelChurkin/digital_twin_of_russia#1. The repository follows the referenced
-SaaS implementation prompts: FastAPI backend, React/MapLibre frontend, seeded
-open-data passports, scenario runs, report export, audit logging, and local
-development infrastructure.
+Прототип открытого контура для проекта, описанного в
+PavelChurkin/digital_twin_of_russia#1. Репозиторий реализует указанные
+SaaS-инструкции: бэкенд на FastAPI, фронтенд React/MapLibre, паспорта
+демо-данных открытого контура, запуск сценариев, экспорт отчётов, журнал
+аудита и инфраструктура для локальной разработки.
 
-## Scope
+## Область применения
 
-v0.1 is a demonstrator, not a production state platform. It uses only open and
-aggregated demo data:
+v0.1 — демонстратор, не производственная платформа. Используются только
+открытые и агрегированные демо-данные:
 
-- 12 first-queue CSV/file data sources plus 2 API connector descriptors;
-- dataset passports with source, version, license, quality and limitations;
-- open-contour read APIs for catalog, layers, objects, scenarios and reports;
-- deterministic demo scenario runs for regional passport, workforce deficit,
-  site comparison, emergency risk and relocation comparison;
-- read-only guest mode, write actions for registered roles, API keys for
-  developer/operator roles;
-- append-only audit log with hash-chain verification.
+- 12 источников данных CSV/файл первой очереди плюс 2 дескриптора API-коннектора;
+- паспорта датасетов с источником, версией, лицензией, качеством и ограничениями;
+- API открытого контура (только чтение) для каталога, слоёв, объектов, сценариев и отчётов;
+- детерминированные демо-сценарии для регионального паспорта, дефицита кадров,
+  сравнения площадок, аварийных рисков и сравнения для переезда;
+- гостевой режим только для чтения, операции записи для зарегистрированных ролей, API-ключи для
+  ролей разработчика/оператора;
+- журнал аудита только для добавления с проверкой хеш-цепочки.
 
-No personal data, critical-infrastructure schemes, closed-contour data or
-automatic management decisions are exposed.
+Персональные данные, схемы критической инфраструктуры, данные закрытого контура
+и автоматические управленческие решения не раскрываются.
 
-## Repository Layout
+## Структура репозитория
 
 ```text
-backend/              FastAPI app, ETL scaffold, scenario engine, tests, Alembic
-frontend/             Vite + React + TypeScript + MapLibre app
-infra/                Docker Compose and Airflow DAG scaffold
-data/demo/            Seeded open-contour datasets, layers, objects, scenarios
-data/classifiers/     Starter classifier seed
-docs/                 Architecture and v0.1 implementation notes
-.github/workflows/    Pull-request CI
+backend/              FastAPI-приложение, ETL-каркас, движок сценариев, тесты, Alembic
+frontend/             Приложение на Vite + React + TypeScript + MapLibre
+infra/                Docker Compose и каркас DAG Airflow
+data/demo/            Датасеты открытого контура, слои, объекты, сценарии
+data/classifiers/     Начальный seed классификатора
+docs/                 Архитектура и заметки по реализации v0.1
+.github/workflows/    CI для pull request-ов
 ```
 
-## Local Development
+## Локальная разработка
 
-Install and test everything:
+Установка и полное тестирование:
 
 ```bash
 make install
@@ -45,34 +45,34 @@ make lint
 make test
 ```
 
-Run the API and frontend in separate terminals:
+Запуск API и фронтенда в отдельных терминалах:
 
 ```bash
 make dev-backend
 make dev-frontend
 ```
 
-Open the app at `http://localhost:5173`; the API is at
-`http://localhost:8000`, and OpenAPI docs are at `http://localhost:8000/docs`.
+Откройте приложение по адресу `http://localhost:5173`; API доступен по
+`http://localhost:8000`, документация OpenAPI — по `http://localhost:8000/docs`.
 
-Seed summary:
+Сводка сида:
 
 ```bash
 make seed-open-data
 ```
 
-Docker stack:
+Docker-стек:
 
 ```bash
 make up
 make down
 ```
 
-The compose stack includes PostgreSQL/PostGIS, Redis, MinIO, Airflow, backend
-and frontend services. The current API uses seeded JSON data so the repository
-can be tested without live external data downloads.
+Стек compose включает PostgreSQL/PostGIS, Redis, MinIO, Airflow, сервисы
+бэкенда и фронтенда. Текущий API использует сидированные JSON-данные, поэтому
+репозиторий можно тестировать без загрузки внешних данных.
 
-## API Surface
+## API-интерфейс
 
 - `GET /api/v1/catalog/datasets`
 - `GET /api/v1/catalog/datasets/{id}`
@@ -86,18 +86,18 @@ can be tested without live external data downloads.
 - `POST /api/v1/auth/keys`
 - `GET /api/v1/audit/verify`
 
-Every data-bearing response carries provenance directly or through its dataset
-passport: source, source version, license, quality flag and known limitations.
+Каждый ответ с данными содержит провенанс напрямую или через паспорт датасета:
+источник, версию источника, лицензию, флаг качества и известные ограничения.
 
-## Verification
+## Проверка
 
-Backend tests pin the v0.1 contracts:
+Тесты бэкенда фиксируют контракты v0.1:
 
-- catalog contains 14 open-contour passports;
-- guest mode blocks write actions;
-- scenario runs record dataset/model/scenario versions;
-- Markdown exports include provenance and limitations;
-- audit hash-chain verification stays valid;
-- ETL parses Windows-1251 CSV and builds passports.
+- каталог содержит 14 паспортов открытого контура;
+- гостевой режим блокирует операции записи;
+- запуски сценариев записывают версии датасета/модели/сценария;
+- экспорт в Markdown включает провенанс и ограничения;
+- проверка хеш-цепочки аудита остаётся валидной;
+- ETL разбирает CSV в кодировке Windows-1251 и строит паспорта.
 
-Frontend CI runs ESLint, Prettier check, TypeScript build and Vite build.
+CI фронтенда запускает ESLint, проверку Prettier, сборку TypeScript и сборку Vite.

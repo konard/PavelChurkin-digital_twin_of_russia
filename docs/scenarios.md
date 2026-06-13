@@ -1,20 +1,20 @@
-# Demo Scenarios
+# Демо-сценарии
 
-The v0.1 seed includes five open-contour scenarios:
+Сид v0.1 включает пять сценариев открытого контура:
 
-| ID                      | Source requirement                                       |
+| Идентификатор           | Требование к источнику                                   |
 | ----------------------- | -------------------------------------------------------- |
-| `regional-passport`     | OSM, Rosstat, EMISS/Fedstat, FNS                         |
-| `workforce-deficit`     | Работы России exports/API, Rosstat, Minpros, Minobrnauki |
-| `site-comparison`       | OSM, Rosstat, workforce data, climate and FIRMS          |
-| `emergency-risk`        | Roshydromet, NASA FIRMS and OSM                          |
-| `relocation-calculator` | Rosstat, OSM, climate and GAR/FIAS                       |
+| `regional-passport`     | OSM, Росстат, ЕМИСС/Федстат, ФНС                        |
+| `workforce-deficit`     | Выгрузки/API Работы России, Росстат, Минпрос, Минобрнауки |
+| `site-comparison`       | OSM, Росстат, данные о кадрах, климат и FIRMS            |
+| `emergency-risk`        | Росгидромет, NASA FIRMS и OSM                            |
+| `relocation-calculator` | Росстат, OSM, климат и ГАР/ФИАС                          |
 
-Guest users can inspect precomputed demo runs. Registered roles can create new
-runs through `POST /api/v1/scenarios/{id}/run`. Each run records:
+Гостевые пользователи могут просматривать предварительно вычисленные демо-запуски. Зарегистрированные роли могут создавать новые
+запуски через `POST /api/v1/scenarios/{id}/run`. Каждый запуск записывает:
 
-- `dataset_version`;
-- `model_version`;
-- `scenario_version`;
-- result payload with source blocks;
-- audit entry for the run action.
+- `dataset_version` — версию датасета;
+- `model_version` — версию модели;
+- `scenario_version` — версию сценария;
+- результирующую нагрузку с блоками источников;
+- запись аудита для действия запуска.

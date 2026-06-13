@@ -17,27 +17,27 @@ def render_markdown(run: ScenarioRun) -> str:
             f"quality: {source['quality_flag']}"
         )
         for limitation in source.get("known_limitations", []):
-            source_lines.append(f"  - limitation: {limitation}")
+            source_lines.append(f"  - ограничение: {limitation}")
 
     return "\n".join(
         [
-            f"# Scenario report: {run.scenario_id}",
+            f"# Отчёт по сценарию: {run.scenario_id}",
             "",
-            f"Run ID: `{run.id}`",
-            f"Dataset version: `{run.dataset_version}`",
-            f"Model version: `{run.model_version}`",
-            f"Scenario version: `{run.scenario_version}`",
+            f"Идентификатор запуска: `{run.id}`",
+            f"Версия датасета: `{run.dataset_version}`",
+            f"Версия модели: `{run.model_version}`",
+            f"Версия сценария: `{run.scenario_version}`",
             "",
-            "## Summary",
-            str(result.get("summary", "No summary available.")),
+            "## Сводка",
+            str(result.get("summary", "Сводка недоступна.")),
             "",
-            "## Result",
+            "## Результат",
             indent(str({key: value for key, value in result.items() if key != "sources"}), "    "),
             "",
-            "## Sources and Limitations",
-            *(source_lines or ["- No sources recorded."]),
+            "## Источники и ограничения",
+            *(source_lines or ["- Источники не записаны."]),
             "",
-            "This report is incomplete by design: v0.1 uses only open and aggregated data.",
+            "Данный отчёт намеренно неполный: v0.1 использует только открытые и агрегированные данные.",
         ]
     )
 

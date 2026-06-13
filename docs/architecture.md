@@ -1,45 +1,45 @@
-# Architecture
+# Архитектура
 
-The v0.1 implementation is a narrow open-contour demonstrator:
+Реализация v0.1 — узкий демонстратор открытого контура:
 
 ```text
-Open CSV/file/API source descriptors
-  -> ETL scaffold and dataset passports
-  -> Seeded catalog and layer/object records
-  -> FastAPI read API and deterministic scenario engine
-  -> React + MapLibre dashboard and report view
-  -> Audit log with hash-chain verification
+Дескрипторы источников CSV/файл/API открытого контура
+  -> ETL-каркас и паспорта датасетов
+  -> Сидированный каталог и записи слоёв/объектов
+  -> API FastAPI только для чтения и детерминированный движок сценариев
+  -> Дашборд React + MapLibre и просмотр отчётов
+  -> Журнал аудита с проверкой хеш-цепочки
 ```
 
-## Backend Services
+## Сервисы бэкенда
 
-| Spec ID            | Implementation                                                            |
-| ------------------ | ------------------------------------------------------------------------- |
-| S1 Auth/RBAC       | Header-based role scaffold: guest, citizen, business, developer, operator |
-| S2 Catalog         | Dataset passport endpoints and filters                                    |
-| S3 Scenario engine | Deterministic open-data demo runs with fixed versions                     |
-| S4 Geoservice      | Layer/object endpoints and GeoJSON tile envelope                          |
-| S5 Export          | Markdown and minimal PDF report exports                                   |
-| S6 Audit           | Append-only in-memory hash chain                                          |
-| S7 Gateway         | Open-contour and k-anonymity checks for public datasets                   |
+| Идентификатор спецификации | Реализация                                                                         |
+| -------------------------- | ---------------------------------------------------------------------------------- |
+| S1 Авторизация/RBAC        | Каркас ролей на основе заголовков: гость, гражданин, бизнес, разработчик, оператор |
+| S2 Каталог                 | Эндпоинты и фильтры паспортов датасетов                                            |
+| S3 Движок сценариев        | Детерминированные демо-запуски на открытых данных с фиксированными версиями        |
+| S4 Геосервис               | Эндпоинты слоёв/объектов и тайловый конверт GeoJSON                               |
+| S5 Экспорт                 | Экспорт отчётов в Markdown и минимальный PDF                                       |
+| S6 Аудит                   | Хеш-цепочка только для добавления в памяти                                         |
+| S7 Шлюз                    | Проверки открытого контура и k-анонимности для публичных датасетов                 |
 
-The API is intentionally seeded from `data/demo` so tests are reproducible and
-do not rely on live Russian open-data endpoints.
+API намеренно сидируется из `data/demo`, чтобы тесты были воспроизводимы и
+не зависели от живых эндпоинтов российских открытых данных.
 
-## Frontend Modules
+## Модули фронтенда
 
-| Spec ID          | Implementation                                        |
-| ---------------- | ----------------------------------------------------- |
-| M1 Map           | MapLibre panel with local GeoJSON pilot-region layers |
-| M2 Scenarios     | Demo scenario catalog                                 |
-| M3 Catalog       | Dataset passport table with quality badges            |
-| M4 Reports       | Precomputed report summary and version block          |
-| M5 Cabinet/Roles | Role model is represented in API write restrictions   |
-| M6 Admin         | Deferred after operator workflow is defined           |
-| M7 Audit         | API endpoint verifies the hash chain                  |
+| Идентификатор спецификации | Реализация                                                    |
+| -------------------------- | ------------------------------------------------------------- |
+| M1 Карта                   | Панель MapLibre с локальными GeoJSON-слоями пилотного региона |
+| M2 Сценарии                | Каталог демо-сценариев                                        |
+| M3 Каталог                 | Таблица паспортов датасетов с метками качества                |
+| M4 Отчёты                  | Сводка предварительно вычисленного отчёта и блок версий       |
+| M5 Кабинет/Роли            | Модель ролей отражена в ограничениях записи API               |
+| M6 Администрирование       | Отложено до определения рабочего процесса оператора           |
+| M7 Аудит                   | API-эндпоинт проверяет хеш-цепочку                           |
 
-## Data Boundaries
+## Границы данных
 
-Only `contour=open` records are returned. The demo excludes personal data,
-critical-infrastructure schemes and closed-contour scenarios. Dataset records
-with aggregated or anonymized PII status must satisfy `k_anonymity >= 5`.
+Возвращаются только записи с `contour=open`. Демо исключает персональные данные,
+схемы критической инфраструктуры и сценарии закрытого контура. Записи датасетов
+с агрегированным или анонимизированным статусом ПДн должны удовлетворять условию `k_anonymity >= 5`.

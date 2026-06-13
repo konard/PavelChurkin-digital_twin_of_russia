@@ -37,11 +37,11 @@ class Source(ABC):
 
     @abstractmethod
     def fetch(self) -> bytes:
-        """Return raw source bytes."""
+        """Возвращает необработанные байты источника."""
 
     @abstractmethod
     def parse(self, payload: bytes) -> Iterable[dict[str, Any]]:
-        """Parse raw source bytes into source records."""
+        """Разбирает необработанные байты источника в записи источника."""
 
     def normalize(self, rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
@@ -111,7 +111,7 @@ class CsvSource(Source):
 
     def fetch(self) -> bytes:
         if self.payload is None:
-            raise EtlError("No payload configured for demo CSV source.")
+            raise EtlError("Для демо CSV-источника не настроена нагрузка.")
         return self.payload
 
     def parse(self, payload: bytes) -> list[dict[str, Any]]:
@@ -124,4 +124,4 @@ class CsvSource(Source):
                 continue
             reader = csv.DictReader(StringIO(text), delimiter=self.delimiter)
             return [dict(row) for row in reader]
-        raise EtlError(f"Unable to decode CSV payload: {last_error}") from last_error
+        raise EtlError(f"Не удалось декодировать CSV-нагрузку: {last_error}") from last_error

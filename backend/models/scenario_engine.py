@@ -26,40 +26,40 @@ def build_scenario_result(
 
     if scenario.id == "regional-passport":
         return {
-            "summary": f"Open-contour resource passport for {region}.",
+            "summary": f"Паспорт ресурсов открытого контура для {region}.",
             "kpis": [
-                {"name": "Connected open datasets", "value": len(datasets), "unit": "datasets"},
-                {"name": "Workforce pressure", "value": 0.47, "unit": "index"},
-                {"name": "Transport availability", "value": 0.82, "unit": "index"},
-                {"name": "Data freshness", "value": "2026-06", "unit": "snapshot"},
+                {"name": "Подключённые открытые датасеты", "value": len(datasets), "unit": "датасеты"},
+                {"name": "Давление на рынок труда", "value": 0.47, "unit": "индекс"},
+                {"name": "Транспортная доступность", "value": 0.82, "unit": "индекс"},
+                {"name": "Актуальность данных", "value": "2026-06", "unit": "снимок"},
             ],
-            "panels": ["Map", "Economy", "Labor", "Infrastructure", "Risk"],
+            "panels": ["Карта", "Экономика", "Труд", "Инфраструктура", "Риски"],
             "assumptions": [
-                "The report uses only open and aggregated demo records.",
-                "Missing municipal values are shown as limitations, not interpolated facts.",
+                "Отчёт использует только открытые и агрегированные демо-записи.",
+                "Отсутствующие муниципальные значения отображаются как ограничения, а не интерполированные факты.",
             ],
             "sources": sources,
         }
 
     if scenario.id == "workforce-deficit":
-        profession = parameters.get("profession", "Software developer")
+        profession = parameters.get("profession", "Разработчик программного обеспечения")
         return {
-            "summary": f"Open vacancy pressure for {profession} in {region}.",
+            "summary": f"Давление открытых вакансий для {profession} в {region}.",
             "heatmap": [
                 {"oktmo": "45000000", "profession": profession, "deficit_index": 0.47},
                 {"oktmo": "45097000", "profession": profession, "deficit_index": 0.34},
             ],
             "recommendations": [
-                "Compare open vacancies with accredited programs before planning intake.",
-                "Treat the result as a demand signal because it excludes closed employer data.",
+                "Сравнивайте открытые вакансии с аккредитованными программами перед планированием набора.",
+                "Рассматривайте результат как сигнал спроса, поскольку закрытые данные работодателей исключены.",
             ],
             "sources": sources,
         }
 
     if scenario.id == "site-comparison":
-        sites = parameters.get("sites") or ["North site", "South logistics site", "East site"]
+        sites = parameters.get("sites") or ["Северная площадка", "Южная логистическая площадка", "Восточная площадка"]
         return {
-            "summary": f"Ranked open-data comparison for {len(sites)} demo production sites.",
+            "summary": f"Ранжированное сравнение открытых данных для {len(sites)} демо производственных площадок.",
             "ranking": [
                 {"site": site, "score": round(0.82 - index * 0.09, 2), "rank": index + 1}
                 for index, site in enumerate(sites)
@@ -70,14 +70,14 @@ def build_scenario_result(
 
     if scenario.id == "emergency-risk":
         return {
-            "summary": f"Basic emergency-risk screen for {region}.",
+            "summary": f"Базовый экран аварийных рисков для {region}.",
             "risk_zones": [
-                {"zone": "north-east aggregate", "risk_score": 0.31, "driver": "fire_hotspots"},
-                {"zone": "central aggregate", "risk_score": 0.22, "driver": "heat_anomaly"},
+                {"zone": "северо-восточный агрегат", "risk_score": 0.31, "driver": "fire_hotspots"},
+                {"zone": "центральный агрегат", "risk_score": 0.22, "driver": "heat_anomaly"},
             ],
             "limitations": [
-                "This is a demo risk screen, not an operational emergency forecast.",
-                "Sensitive response resources and infrastructure schemes are excluded.",
+                "Это демо-экран рисков, а не оперативный прогноз ЧС.",
+                "Чувствительные ресурсы реагирования и схемы инфраструктуры исключены.",
             ],
             "sources": sources,
         }
@@ -85,7 +85,7 @@ def build_scenario_result(
     if scenario.id == "relocation-calculator":
         cities = parameters.get("cities") or ["Москва", "Санкт-Петербург"]
         return {
-            "summary": "Open-data comparison for relocation decisions.",
+            "summary": "Сравнение открытых данных для решений о переезде.",
             "cities": [
                 {
                     "city": city,
@@ -99,7 +99,7 @@ def build_scenario_result(
         }
 
     return {
-        "summary": f"Scenario {scenario.id} completed.",
+        "summary": f"Сценарий {scenario.id} выполнен.",
         "parameters": parameters,
         "sources": sources,
     }
