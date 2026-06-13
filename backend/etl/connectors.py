@@ -40,7 +40,9 @@ STARTER_SOURCES: tuple[SourceMetadata, ...] = (
         license="Условия открытых данных источника",
         update_frequency="daily",
         classifier_alignment=["ОКЗ", "ОКТМО"],
-        known_limitations=["Коннектор должен обрабатывать пагинацию, повторные попытки и маркеры мягких сбоев."],
+        known_limitations=[
+            "Коннектор должен обрабатывать пагинацию, повторные попытки и маркеры мягких сбоев.",
+        ],
     ),
 )
 
