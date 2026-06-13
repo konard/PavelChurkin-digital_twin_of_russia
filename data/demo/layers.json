@@ -1,7 +1,7 @@
 [
   {
     "id": "transport",
-    "name": "Transport network",
+    "name": "Транспортная сеть",
     "dataset_id": "osm-geofabrik",
     "domain": "geospatial",
     "region": "Москва",
@@ -10,7 +10,7 @@
   },
   {
     "id": "social-infrastructure",
-    "name": "Social infrastructure",
+    "name": "Социальная инфраструктура",
     "dataset_id": "osm-geofabrik",
     "domain": "geospatial",
     "region": "Москва",
@@ -19,7 +19,7 @@
   },
   {
     "id": "labor-deficit",
-    "name": "Workforce deficit heatmap",
+    "name": "Тепловая карта кадрового дефицита",
     "dataset_id": "trudvsem-opendata",
     "domain": "labor",
     "region": "Москва",
@@ -28,7 +28,7 @@
   },
   {
     "id": "education-programs",
-    "name": "Education programs",
+    "name": "Образовательные программы",
     "dataset_id": "minobrnauki-programs",
     "domain": "education",
     "region": "Москва",
@@ -37,7 +37,7 @@
   },
   {
     "id": "climate-risk",
-    "name": "Climate and fire risk",
+    "name": "Климатический и пожарный риск",
     "dataset_id": "nasa-firms-api",
     "domain": "emergency",
     "region": "Россия",
@@ -46,7 +46,7 @@
   },
   {
     "id": "budget-projects",
-    "name": "Budget and procurement projects",
+    "name": "Бюджетные и закупочные проекты",
     "dataset_id": "zakupki-contracts",
     "domain": "budget",
     "region": "Москва",

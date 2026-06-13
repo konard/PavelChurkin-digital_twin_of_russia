@@ -1,5 +1,7 @@
 export type QualityFlag = "verified" | "aggregated" | "draft" | "outdated";
 
+export type Role = "guest" | "citizen" | "business" | "developer" | "operator";
+
 export interface DatasetPassport {
   id: string;
   title: string;
@@ -7,6 +9,7 @@ export interface DatasetPassport {
   region: string;
   owner: string;
   source: string;
+  source_url: string;
   source_version: string;
   license: string;
   update_frequency: string;
@@ -26,6 +29,15 @@ export interface Scenario {
   demo: boolean;
 }
 
+export interface ScenarioSource {
+  dataset_id: string;
+  source: string;
+  source_version: string;
+  license: string;
+  quality_flag: QualityFlag;
+  known_limitations: string[];
+}
+
 export interface ScenarioRun {
   id: string;
   scenario_id: string;
@@ -34,13 +46,64 @@ export interface ScenarioRun {
   scenario_version: string;
   result: {
     summary: string;
-    sources: Array<{
-      dataset_id: string;
-      source: string;
-      source_version: string;
-      license: string;
-      quality_flag: QualityFlag;
-      known_limitations: string[];
-    }>;
+    sources: ScenarioSource[];
+    [key: string]: unknown;
   };
+}
+
+export interface Layer {
+  id: string;
+  name: string;
+  dataset_id: string;
+  domain: string;
+  region: string;
+  geometry_type: "Point" | "LineString" | "Polygon" | "MultiPolygon";
+  style: Record<string, unknown>;
+}
+
+export interface TwinObject {
+  id: string;
+  name: string;
+  layer_id: string;
+  object_type: string;
+  region: string;
+  oktmo: string;
+  properties: Record<string, unknown>;
+  geometry: { type: string; coordinates: unknown };
+  provenance: {
+    source: string;
+    source_version: string;
+    license: string;
+    quality_flag: QualityFlag;
+    known_limitations: string[];
+  };
+}
+
+export interface RoleInfo {
+  role: Role;
+  display_name: string;
+  description: string;
+  can_write: boolean;
+  requires_login: boolean;
+}
+
+export interface Session {
+  role: Role;
+  display_name: string;
+  username: string | null;
+  can_write: boolean;
+}
+
+export interface LoginResponse {
+  username: string;
+  role: Role;
+  display_name: string;
+  can_write: boolean;
+}
+
+export interface ApiKeyResponse {
+  name: string;
+  key: string;
+  role: Role;
+  scopes: string[];
 }

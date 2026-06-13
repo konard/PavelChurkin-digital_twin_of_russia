@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import FastAPI, Header, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.auth import DEMO_ACCOUNTS, authenticate
 from backend.app.export import render_markdown, render_pdf
 from backend.app.gateway import require_open_contour, require_write_role
 from backend.app.schemas import (
@@ -14,7 +15,10 @@ from backend.app.schemas import (
     DatasetPassport,
     HealthResponse,
     Layer,
+    LoginRequest,
+    LoginResponse,
     Role,
+    RoleInfo,
     RunRequest,
     Scenario,
     ScenarioRun,
@@ -22,9 +26,11 @@ from backend.app.schemas import (
 )
 from backend.app.store import DemoStore
 
+VERSION = "0.1.3"
+
 app = FastAPI(
     title="API Цифрового двойника России",
-    version="0.1.2",
+    version=VERSION,
     summary="API открытого контура v0.1 с каталогом, слоями, сценариями, экспортами и аудитом.",
 )
 
@@ -56,7 +62,50 @@ def _role(value: str | None) -> Role:
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", version="0.1.2", contour="open")
+    return HealthResponse(status="ok", version=VERSION, contour="open")
+
+
+@app.get("/api/v1/auth/roles", response_model=list[RoleInfo])
+def list_roles() -> list[RoleInfo]:
+    """Роли открытого контура для экрана входа."""
+
+    roles = [
+        RoleInfo(
+            role="guest",
+            display_name="Гость",
+            description="Демо-режим только для чтения: карта, каталог и "
+            "предрассчитанные результаты сценариев без пароля.",
+            can_write=False,
+            requires_login=False,
+        )
+    ]
+    for account in DEMO_ACCOUNTS.values():
+        roles.append(
+            RoleInfo(
+                role=account.role,
+                display_name=account.display_name,
+                description=account.description,
+                can_write=True,
+                requires_login=True,
+            )
+        )
+    return roles
+
+
+@app.post("/api/v1/auth/login", response_model=LoginResponse)
+def login(request: LoginRequest) -> LoginResponse:
+    account = authenticate(request.username, request.password)
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный логин или пароль. Для входа без пароля используйте гостевой режим.",
+        )
+    return LoginResponse(
+        username=account.username,
+        role=account.role,
+        display_name=account.display_name,
+        can_write=True,
+    )
 
 
 @app.get("/api/v1/catalog/datasets", response_model=list[DatasetPassport])
@@ -119,6 +168,19 @@ def get_tile(layer_id: str, z: int, x: int, y: int) -> dict:
         "layer": layer_id,
         "features": features,
     }
+
+
+@app.get("/api/v1/objects", response_model=list[TwinObject])
+def list_objects(
+    layer_id: Annotated[str | None, Query()] = None,
+    region: Annotated[str | None, Query()] = None,
+) -> list[TwinObject]:
+    objects = list(store.objects.values())
+    if layer_id:
+        objects = [item for item in objects if item.layer_id == layer_id]
+    if region:
+        objects = [item for item in objects if item.region in {region, "Россия"}]
+    return sorted(objects, key=lambda item: item.id)
 
 
 @app.get("/api/v1/objects/{object_id}", response_model=TwinObject)
