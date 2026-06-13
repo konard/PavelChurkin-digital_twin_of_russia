@@ -1,0 +1,56 @@
+[
+  {
+    "id": "transport",
+    "name": "Transport network",
+    "dataset_id": "osm-geofabrik",
+    "domain": "geospatial",
+    "region": "Москва",
+    "geometry_type": "LineString",
+    "style": { "color": "#2563eb", "width": 2 }
+  },
+  {
+    "id": "social-infrastructure",
+    "name": "Social infrastructure",
+    "dataset_id": "osm-geofabrik",
+    "domain": "geospatial",
+    "region": "Москва",
+    "geometry_type": "Point",
+    "style": { "color": "#16a34a", "radius": 6 }
+  },
+  {
+    "id": "labor-deficit",
+    "name": "Workforce deficit heatmap",
+    "dataset_id": "trudvsem-opendata",
+    "domain": "labor",
+    "region": "Москва",
+    "geometry_type": "Polygon",
+    "style": { "color": "#dc2626", "opacity": 0.58 }
+  },
+  {
+    "id": "education-programs",
+    "name": "Education programs",
+    "dataset_id": "minobrnauki-programs",
+    "domain": "education",
+    "region": "Москва",
+    "geometry_type": "Point",
+    "style": { "color": "#7c3aed", "radius": 5 }
+  },
+  {
+    "id": "climate-risk",
+    "name": "Climate and fire risk",
+    "dataset_id": "nasa-firms-api",
+    "domain": "emergency",
+    "region": "Россия",
+    "geometry_type": "Point",
+    "style": { "color": "#ea580c", "radius": 8 }
+  },
+  {
+    "id": "budget-projects",
+    "name": "Budget and procurement projects",
+    "dataset_id": "zakupki-contracts",
+    "domain": "budget",
+    "region": "Москва",
+    "geometry_type": "Point",
+    "style": { "color": "#0f766e", "radius": 5 }
+  }
+]

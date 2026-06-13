@@ -1,0 +1,93 @@
+[
+  {
+    "id": "obj.transport.msk.central-ring",
+    "name": "Central transport ring aggregate",
+    "layer_id": "transport",
+    "object_type": "transport_corridor",
+    "region": "Москва",
+    "oktmo": "45000000",
+    "properties": {
+      "capacity_index": 0.82,
+      "risk": "medium",
+      "comment": "Demo aggregate without sensitive network detail."
+    },
+    "geometry": {
+      "type": "LineString",
+      "coordinates": [
+        [37.45, 55.72],
+        [37.62, 55.75],
+        [37.78, 55.68]
+      ]
+    },
+    "classifier_codes": { "oktmo": "45000000", "okved": null, "okz": null },
+    "aggregation_level": "municipality",
+    "pii_status": "none",
+    "contour": "open"
+  },
+  {
+    "id": "obj.labor.it.msk",
+    "name": "IT workforce deficit cluster",
+    "layer_id": "labor-deficit",
+    "object_type": "labor_deficit",
+    "region": "Москва",
+    "oktmo": "45000000",
+    "properties": {
+      "profession": "Software developer",
+      "open_vacancies": 1240,
+      "graduates_pipeline": 640,
+      "deficit_index": 0.47
+    },
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [37.5, 55.7],
+          [37.7, 55.7],
+          [37.7, 55.82],
+          [37.5, 55.82],
+          [37.5, 55.7]
+        ]
+      ]
+    },
+    "classifier_codes": { "oktmo": "45000000", "okved": "62", "okz": "2512" },
+    "aggregation_level": "municipality",
+    "pii_status": "aggregated",
+    "contour": "open"
+  },
+  {
+    "id": "obj.education.engineering.msk",
+    "name": "Engineering education program aggregate",
+    "layer_id": "education-programs",
+    "object_type": "education_program",
+    "region": "Москва",
+    "oktmo": "45000000",
+    "properties": {
+      "programs": 18,
+      "annual_capacity": 2100,
+      "relevance": "industrial automation"
+    },
+    "geometry": { "type": "Point", "coordinates": [37.63, 55.76] },
+    "classifier_codes": { "oktmo": "45000000", "okved": null, "okz": "2141" },
+    "aggregation_level": "municipality",
+    "pii_status": "aggregated",
+    "contour": "open"
+  },
+  {
+    "id": "obj.risk.fire.central",
+    "name": "Fire hotspot demo aggregate",
+    "layer_id": "climate-risk",
+    "object_type": "emergency_risk",
+    "region": "Россия",
+    "oktmo": "00000000",
+    "properties": {
+      "risk_score": 0.31,
+      "last_observed": "2026-06-12",
+      "source_mode": "last-known demo"
+    },
+    "geometry": { "type": "Point", "coordinates": [38.12, 55.34] },
+    "classifier_codes": { "oktmo": "00000000", "okved": null, "okz": null },
+    "aggregation_level": "region",
+    "pii_status": "none",
+    "contour": "open"
+  }
+]
