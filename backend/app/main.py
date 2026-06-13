@@ -226,7 +226,9 @@ def create_api_key(
 def list_audit(x_role: Annotated[str | None, Header(alias="X-Role")] = None) -> list[AuditEntry]:
     role = _role(x_role)
     if role not in {"developer", "operator"}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступ к аудиту запрещён")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Доступ к аудиту запрещён"
+        )
     return store.audit_log.entries
 
 
