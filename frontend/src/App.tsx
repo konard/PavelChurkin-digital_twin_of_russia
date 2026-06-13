@@ -119,7 +119,13 @@ function MapPanel() {
     return () => map.remove();
   }, []);
 
-  return <div ref={ref} className="map-canvas" aria-label="Карта пилотного региона" />;
+  return (
+    <div
+      ref={ref}
+      className="map-canvas"
+      aria-label="Карта пилотного региона"
+    />
+  );
 }
 
 function App() {
