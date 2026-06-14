@@ -25,6 +25,8 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from backend.etl.geocoding import USER_AGENT
+
 TRUDVSEM_CSV_URL = "https://opendata.trudvsem.ru/csv/vacancy.csv"
 # Обновление данных по вакансиям — раз в 1.5 дня (issue #12).
 REFRESH_INTERVAL_HOURS = 36
@@ -180,7 +182,8 @@ def stream_remote_lines(
     """
 
     open_fn = opener or urllib.request.urlopen  # noqa: S310
-    request = urllib.request.Request(url, headers={"User-Agent": "DigitalTwinOfRussia/0.1.4"})
+    # Контактная почта оператора в User-Agent — по требованию issue #12.
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     response = open_fn(request)  # type: ignore[operator]
     with response:
         stream = io.TextIOWrapper(response, encoding=encoding, newline="")
