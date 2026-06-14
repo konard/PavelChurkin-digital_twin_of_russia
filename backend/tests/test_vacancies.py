@@ -28,9 +28,7 @@ def test_iter_vacancies_streams_rows_and_maps_header() -> None:
 
 
 def test_iter_vacancies_filters_by_profession_and_limit() -> None:
-    python_only = list(
-        iter_vacancies(SAMPLE_CSV.splitlines(), profession="python", limit=1)
-    )
+    python_only = list(iter_vacancies(SAMPLE_CSV.splitlines(), profession="python", limit=1))
 
     assert len(python_only) == 1
     assert python_only[0].profession == "Python-разработчик"
@@ -68,9 +66,7 @@ def test_vacancies_profession_filter_endpoint() -> None:
     response = client.get("/api/v1/vacancies", params={"profession": "Python-разработчик"})
 
     assert response.status_code == 200
-    professions = {
-        feature["properties"]["profession"] for feature in response.json()["features"]
-    }
+    professions = {feature["properties"]["profession"] for feature in response.json()["features"]}
     assert professions == {"Python-разработчик"}
 
 

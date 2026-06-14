@@ -63,9 +63,7 @@ def _objects_csv(objects: list[TwinObject]) -> str:
 
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")
-    writer.writerow(
-        ["id", "name", "object_type", "region", "oktmo", "lon", "lat", *property_keys]
-    )
+    writer.writerow(["id", "name", "object_type", "region", "oktmo", "lon", "lat", *property_keys])
     for item in objects:
         lon, lat = _centroid(item.geometry)
         writer.writerow(

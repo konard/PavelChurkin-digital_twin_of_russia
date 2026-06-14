@@ -33,9 +33,7 @@ def test_nominatim_throttles_to_one_request_per_second() -> None:
         waits.append(seconds)
         now["value"] += seconds
 
-    geocoder = NominatimGeocoder(
-        fetch=fake_fetch, sleeper=fake_sleep, clock=lambda: now["value"]
-    )
+    geocoder = NominatimGeocoder(fetch=fake_fetch, sleeper=fake_sleep, clock=lambda: now["value"])
     geocoder.geocode("Москва")
     # второй запрос сразу же должен подождать почти секунду
     geocoder.geocode("Казань")
