@@ -3,11 +3,14 @@ import type {
   DatasetPassport,
   Layer,
   LoginResponse,
+  ProfessionCount,
   RoleInfo,
   Scenario,
   ScenarioRun,
   Session,
   TwinObject,
+  VacancyFeatureCollection,
+  VacancyMeta,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -124,4 +127,69 @@ export async function createApiKey(
 
 export function exportRunUrl(runId: string, format: "md" | "pdf") {
   return `${API_BASE}/api/v1/runs/${runId}/export?format=${format}`;
+}
+
+const EMPTY_VACANCIES: VacancyFeatureCollection = {
+  type: "FeatureCollection",
+  features: [],
+};
+
+export function fetchVacancies(profession?: string) {
+  const query = profession
+    ? `?profession=${encodeURIComponent(profession)}`
+    : "";
+  return getJson<VacancyFeatureCollection>(
+    `/api/v1/vacancies${query}`,
+    EMPTY_VACANCIES,
+  );
+}
+
+export function fetchTopProfessions(limit = 12) {
+  return getJson<ProfessionCount[]>(
+    `/api/v1/vacancies/professions?limit=${limit}`,
+    [],
+  );
+}
+
+export function fetchVacanciesMeta() {
+  return getJson<VacancyMeta | null>("/api/v1/vacancies/meta", null);
+}
+
+/**
+ * Скачать сырой CSV датасета. Эндпоинт требует роль оператора в заголовке
+ * X-Role, поэтому запрос идёт через fetch с последующим сохранением blob,
+ * а не простой ссылкой.
+ */
+export async function downloadDatasetCsv(
+  session: Session,
+  datasetId: string,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/catalog/datasets/${datasetId}/download`,
+    {
+      headers: {
+        "X-Role": session.role,
+        "X-Actor": session.username ?? "operator",
+      },
+    },
+  );
+  if (!response.ok) {
+    const detail = await response
+      .json()
+      .then((body: { detail?: string }) => body.detail)
+      .catch(() => undefined);
+    throw new Error(detail ?? "Не удалось скачать данные.");
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = /filename="?([^"]+)"?/.exec(disposition);
+  const filename = match?.[1] ?? `${datasetId}.csv`;
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }

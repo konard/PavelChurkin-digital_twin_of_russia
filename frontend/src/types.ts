@@ -79,6 +79,36 @@ export interface TwinObject {
   };
 }
 
+export interface ProfessionCount {
+  profession: string;
+  count: number;
+}
+
+export interface VacancyMeta {
+  source: string;
+  source_csv_url: string;
+  dataset_id: string;
+  total: number;
+  professions: number;
+  regions: number;
+  refresh_interval_hours: number;
+  incremental_param: string;
+  geocoder: string;
+  note: string;
+}
+
+export type VacancyFeatureCollection = GeoJSON.FeatureCollection<
+  GeoJSON.Point,
+  {
+    id: string;
+    profession: string;
+    employer: string;
+    region: string;
+    salary: string | null;
+    url: string;
+  }
+>;
+
 export interface RoleInfo {
   role: Role;
   display_name: string;
