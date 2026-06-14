@@ -21,3 +21,6 @@ frontend/vite.config.d.ts
 data/raw/
 data/processed/
 ci-logs/
+
+# Playwright MCP artifacts
+.playwright-mcp/

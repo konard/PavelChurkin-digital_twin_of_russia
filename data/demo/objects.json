@@ -1,7 +1,7 @@
 [
   {
     "id": "obj.transport.msk.central-ring",
-    "name": "Central transport ring aggregate",
+    "name": "Агрегат центрального транспортного кольца",
     "layer_id": "transport",
     "object_type": "transport_corridor",
     "region": "Москва",
@@ -9,7 +9,7 @@
     "properties": {
       "capacity_index": 0.82,
       "risk": "medium",
-      "comment": "Demo aggregate without sensitive network detail."
+      "comment": "Демо-агрегат без чувствительных деталей сети."
     },
     "geometry": {
       "type": "LineString",
@@ -26,13 +26,13 @@
   },
   {
     "id": "obj.labor.it.msk",
-    "name": "IT workforce deficit cluster",
+    "name": "Кластер кадрового дефицита в ИТ",
     "layer_id": "labor-deficit",
     "object_type": "labor_deficit",
     "region": "Москва",
     "oktmo": "45000000",
     "properties": {
-      "profession": "Software developer",
+      "profession": "Разработчик программного обеспечения",
       "open_vacancies": 1240,
       "graduates_pipeline": 640,
       "deficit_index": 0.47
@@ -56,7 +56,7 @@
   },
   {
     "id": "obj.education.engineering.msk",
-    "name": "Engineering education program aggregate",
+    "name": "Агрегат инженерных образовательных программ",
     "layer_id": "education-programs",
     "object_type": "education_program",
     "region": "Москва",
@@ -64,7 +64,7 @@
     "properties": {
       "programs": 18,
       "annual_capacity": 2100,
-      "relevance": "industrial automation"
+      "relevance": "промышленная автоматизация"
     },
     "geometry": { "type": "Point", "coordinates": [37.63, 55.76] },
     "classifier_codes": { "oktmo": "45000000", "okved": null, "okz": "2141" },
@@ -74,7 +74,7 @@
   },
   {
     "id": "obj.risk.fire.central",
-    "name": "Fire hotspot demo aggregate",
+    "name": "Демо-агрегат очага пожара",
     "layer_id": "climate-risk",
     "object_type": "emergency_risk",
     "region": "Россия",
@@ -82,7 +82,7 @@
     "properties": {
       "risk_score": 0.31,
       "last_observed": "2026-06-12",
-      "source_mode": "last-known demo"
+      "source_mode": "демо «последние известные»"
     },
     "geometry": { "type": "Point", "coordinates": [38.12, 55.34] },
     "classifier_codes": { "oktmo": "00000000", "okved": null, "okz": null },

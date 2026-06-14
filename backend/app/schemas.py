@@ -116,6 +116,26 @@ class RunRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=120)
+
+
+class LoginResponse(BaseModel):
+    username: str
+    role: Role
+    display_name: str
+    can_write: bool
+
+
+class RoleInfo(BaseModel):
+    role: Role
+    display_name: str
+    description: str
+    can_write: bool
+    requires_login: bool
+
+
 class ApiKeyRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 

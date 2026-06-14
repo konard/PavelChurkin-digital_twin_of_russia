@@ -1,12 +1,12 @@
 [
   {
     "id": "regional-passport",
-    "title": "1.1 Regional resource passport",
+    "title": "1.1 Региональный ресурсный паспорт",
     "category": "A",
     "version": "scenario-1.1-v0.1",
     "model_version": "passport-model-v0.1",
     "contour": "open",
-    "description": "Open-contour map, KPIs and limitations for a pilot region.",
+    "description": "Карта открытого контура, ключевые показатели и ограничения для пилотного региона.",
     "parameters_schema": {
       "type": "object",
       "required": ["region"],
@@ -22,12 +22,12 @@
   },
   {
     "id": "workforce-deficit",
-    "title": "5.1 Workforce deficit map",
+    "title": "5.1 Карта кадровых дефицитов",
     "category": "A",
     "version": "scenario-5.1-v0.1",
     "model_version": "labor-gap-model-v0.1",
     "contour": "open",
-    "description": "Compares open vacancies, demographics and education pipeline by municipality.",
+    "description": "Сопоставляет открытые вакансии, демографию и образовательный поток по муниципалитетам.",
     "parameters_schema": {
       "type": "object",
       "properties": {
@@ -46,12 +46,12 @@
   },
   {
     "id": "site-comparison",
-    "title": "3.2 Production site comparison",
+    "title": "3.2 Сравнение производственных площадок",
     "category": "A",
     "version": "scenario-3.2-v0.1",
     "model_version": "site-ranking-model-v0.1",
     "contour": "open",
-    "description": "Ranks demo sites by transport access, workforce availability and environmental risk.",
+    "description": "Ранжирует демо-площадки по транспортной доступности, наличию кадров и экологическому риску.",
     "parameters_schema": {
       "type": "object",
       "properties": {
@@ -70,12 +70,12 @@
   },
   {
     "id": "emergency-risk",
-    "title": "7.1 Basic emergency risk",
+    "title": "7.1 Базовый риск ЧС",
     "category": "A",
     "version": "scenario-7.1-v0.1",
     "model_version": "emergency-risk-model-v0.1",
     "contour": "open",
-    "description": "Combines climate rows, fire hotspots and open infrastructure context.",
+    "description": "Объединяет климатические ряды, очаги пожаров и контекст открытой инфраструктуры.",
     "parameters_schema": {
       "type": "object",
       "properties": {
@@ -88,12 +88,12 @@
   },
   {
     "id": "relocation-calculator",
-    "title": "14.2 Relocation calculator",
+    "title": "14.2 Калькулятор переезда",
     "category": "A",
     "version": "scenario-14.2-v0.1",
     "model_version": "relocation-model-v0.1",
     "contour": "open",
-    "description": "Compares cities by income, housing proxy, infrastructure and climate context.",
+    "description": "Сравнивает города по доходам, доступности жилья, инфраструктуре и климатическому контексту.",
     "parameters_schema": {
       "type": "object",
       "properties": {
