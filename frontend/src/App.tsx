@@ -2,36 +2,50 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import {
   Archive,
+  Briefcase,
+  Download,
   FileDown,
   KeyRound,
+  Layers,
   LogOut,
   Map as MapIcon,
   Play,
+  Search,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import maplibregl, { type StyleSpecification } from "maplibre-gl";
+import maplibregl, {
+  type SourceSpecification,
+  type StyleSpecification,
+} from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createApiKey,
+  downloadDatasetCsv,
   exportRunUrl,
   fetchDatasets,
   fetchDemoRun,
   fetchObjects,
   fetchRoles,
   fetchScenarios,
+  fetchTopProfessions,
+  fetchVacancies,
+  fetchVacanciesMeta,
   login,
   runScenario,
 } from "./api";
 import type {
   ApiKeyResponse,
   DatasetPassport,
+  ProfessionCount,
   RoleInfo,
   Scenario,
   ScenarioRun,
   Session,
   TwinObject,
+  VacancyFeatureCollection,
+  VacancyMeta,
 } from "./types";
 
 const SESSION_KEY = "dtr.session";
@@ -78,8 +92,70 @@ function objectPopupHtml(item: TwinObject): string {
     </div>`;
 }
 
-function MapPanel({ objects }: { objects: TwinObject[] }) {
+type Basemap = "osm" | "yandex";
+
+const YANDEX_API_KEY = import.meta.env.VITE_YANDEX_API_KEY ?? "";
+
+function basemapSource(basemap: Basemap): SourceSpecification {
+  if (basemap === "yandex" && YANDEX_API_KEY) {
+    // Подключение Яндекс Карт включается только при наличии API-ключа.
+    // Лимиты бесплатного плана соблюдаются на стороне геокодера (см. docs).
+    return {
+      type: "raster",
+      tiles: [
+        `https://tiles.api-maps.yandex.ru/v1/tiles/?x={x}&y={y}&z={z}&l=map&lang=ru_RU&apikey=${YANDEX_API_KEY}`,
+      ],
+      tileSize: 256,
+      attribution: "© Яндекс Карты",
+    };
+  }
+  return {
+    type: "raster",
+    tiles: [
+      "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    ],
+    tileSize: 256,
+    attribution: "© OpenStreetMap contributors",
+  };
+}
+
+function vacancyPopupHtml(properties: Record<string, unknown>): string {
+  const salary = properties.salary
+    ? `<div class="map-popup-meta">${String(properties.salary)}</div>`
+    : "";
+  const link = properties.url
+    ? `<div class="map-popup-src"><a href="${String(
+        properties.url,
+      )}" target="_blank" rel="noreferrer">Открыть на «Работа России»</a></div>`
+    : "";
+  return `
+    <div class="map-popup">
+      <strong>${String(properties.profession ?? "Вакансия")}</strong>
+      <div class="map-popup-meta">${String(properties.employer ?? "")}</div>
+      <div class="map-popup-meta">${String(properties.region ?? "")}</div>
+      ${salary}
+      ${link}
+    </div>`;
+}
+
+function MapPanel({
+  objects,
+  vacancies,
+  showVacancies,
+  basemap,
+}: {
+  objects: TwinObject[];
+  vacancies: VacancyFeatureCollection;
+  showVacancies: boolean;
+  basemap: Basemap;
+}) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const cameraRef = useRef<{ center: [number, number]; zoom: number }>({
+    center: [94, 64],
+    zoom: 2.4,
+  });
 
   useEffect(() => {
     if (!ref.current) {
@@ -91,19 +167,122 @@ function MapPanel({ objects }: { objects: TwinObject[] }) {
       geometry: item.geometry as GeoJSON.Geometry,
     }));
 
+    const vacancyLayers: StyleSpecification["layers"] =
+      showVacancies && vacancies.features.length > 0
+        ? [
+            {
+              id: "vac-heat",
+              type: "heatmap",
+              source: "vacancies-heat",
+              maxzoom: 9,
+              paint: {
+                "heatmap-weight": 1,
+                "heatmap-intensity": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  0,
+                  0.6,
+                  9,
+                  2,
+                ],
+                "heatmap-color": [
+                  "interpolate",
+                  ["linear"],
+                  ["heatmap-density"],
+                  0,
+                  "rgba(33,102,172,0)",
+                  0.2,
+                  "#74add1",
+                  0.4,
+                  "#fee090",
+                  0.6,
+                  "#fdae61",
+                  0.8,
+                  "#f46d43",
+                  1,
+                  "#d73027",
+                ],
+                "heatmap-radius": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  0,
+                  6,
+                  9,
+                  24,
+                ],
+                "heatmap-opacity": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  7,
+                  0.8,
+                  9,
+                  0,
+                ],
+              },
+            },
+            {
+              id: "vac-clusters",
+              type: "circle",
+              source: "vacancies",
+              filter: ["has", "point_count"],
+              paint: {
+                "circle-color": [
+                  "step",
+                  ["get", "point_count"],
+                  "#22c55e",
+                  10,
+                  "#eab308",
+                  30,
+                  "#ef4444",
+                ],
+                "circle-radius": [
+                  "step",
+                  ["get", "point_count"],
+                  16,
+                  10,
+                  22,
+                  30,
+                  30,
+                ],
+                "circle-stroke-color": "#ffffff",
+                "circle-stroke-width": 2,
+              },
+            },
+            {
+              id: "vac-cluster-count",
+              type: "symbol",
+              source: "vacancies",
+              filter: ["has", "point_count"],
+              layout: {
+                "text-field": "{point_count_abbreviated}",
+                "text-font": ["Noto Sans Regular"],
+                "text-size": 12,
+              },
+              paint: { "text-color": "#ffffff" },
+            },
+            {
+              id: "vac-points",
+              type: "circle",
+              source: "vacancies",
+              filter: ["!", ["has", "point_count"]],
+              paint: {
+                "circle-color": "#7c3aed",
+                "circle-radius": 7,
+                "circle-stroke-color": "#ffffff",
+                "circle-stroke-width": 2,
+              },
+            },
+          ]
+        : [];
+
     const style: StyleSpecification = {
       version: 8,
+      glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
       sources: {
-        basemap: {
-          type: "raster",
-          tiles: [
-            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          ],
-          tileSize: 256,
-          attribution: "© OpenStreetMap contributors",
-        },
+        basemap: basemapSource(basemap),
         regions: {
           type: "geojson",
           data: "/regions-russia.geojson",
@@ -111,6 +290,17 @@ function MapPanel({ objects }: { objects: TwinObject[] }) {
         objects: {
           type: "geojson",
           data: { type: "FeatureCollection", features: objectFeatures },
+        },
+        vacancies: {
+          type: "geojson",
+          data: vacancies,
+          cluster: true,
+          clusterRadius: 50,
+          clusterMaxZoom: 14,
+        },
+        "vacancies-heat": {
+          type: "geojson",
+          data: vacancies,
         },
       },
       layers: [
@@ -153,20 +343,28 @@ function MapPanel({ objects }: { objects: TwinObject[] }) {
             "circle-stroke-width": 2,
           },
         },
+        ...vacancyLayers,
       ],
     };
 
     const map = new maplibregl.Map({
       container: ref.current,
       style,
-      center: [94, 64],
-      zoom: 2.4,
+      center: cameraRef.current.center,
+      zoom: cameraRef.current.zoom,
       interactive: true,
     });
     map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
       "top-right",
     );
+    map.on("moveend", () => {
+      const center = map.getCenter();
+      cameraRef.current = {
+        center: [center.lng, center.lat],
+        zoom: map.getZoom(),
+      };
+    });
 
     const popup = new maplibregl.Popup({
       closeButton: true,
@@ -193,6 +391,45 @@ function MapPanel({ objects }: { objects: TwinObject[] }) {
       });
     }
 
+    // Клик по кластеру вакансий — приближение и распад на маркеры зданий.
+    map.on("click", "vac-clusters", (event) => {
+      const feature = map.queryRenderedFeatures(event.point, {
+        layers: ["vac-clusters"],
+      })[0];
+      const clusterId = feature?.properties?.cluster_id;
+      if (clusterId === undefined) {
+        return;
+      }
+      const source = map.getSource("vacancies") as maplibregl.GeoJSONSource;
+      void source.getClusterExpansionZoom(clusterId).then((zoom) => {
+        const geometry = feature.geometry as GeoJSON.Point;
+        map.easeTo({
+          center: geometry.coordinates as [number, number],
+          zoom,
+        });
+      });
+    });
+
+    // Клик по точечной вакансии — карточка вакансии.
+    map.on("click", "vac-points", (event) => {
+      const feature = event.features?.[0];
+      if (!feature) {
+        return;
+      }
+      popup
+        .setLngLat(event.lngLat)
+        .setHTML(vacancyPopupHtml(feature.properties ?? {}))
+        .addTo(map);
+    });
+    for (const layer of ["vac-clusters", "vac-points"]) {
+      map.on("mouseenter", layer, () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", layer, () => {
+        map.getCanvas().style.cursor = "";
+      });
+    }
+
     map.on("click", "regions-fill", (event) => {
       const feature = event.features?.[0];
       if (!feature) {
@@ -209,7 +446,7 @@ function MapPanel({ objects }: { objects: TwinObject[] }) {
     });
 
     return () => map.remove();
-  }, [objects]);
+  }, [objects, vacancies, showVacancies, basemap]);
 
   return (
     <div ref={ref} className="map-canvas" aria-label="Карта регионов России" />
@@ -263,7 +500,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         <div className="brand login-brand">DTR</div>
         <h1>Цифровой двойник России</h1>
         <p className="login-sub">
-          Открытый контур v0.1.3. Войдите как оператор платформы или другая роль
+          Открытый контур v0.1.4. Войдите как оператор платформы или другая роль
           — либо продолжите как гость без пароля.
         </p>
 
@@ -397,21 +634,182 @@ function RunResultView({ run }: { run: ScenarioRun }) {
   );
 }
 
+const EMPTY_VACANCY_FC: VacancyFeatureCollection = {
+  type: "FeatureCollection",
+  features: [],
+};
+
 function MapView({ objects }: { objects: TwinObject[] }) {
+  const [showVacancies, setShowVacancies] = useState(true);
+  const [basemap, setBasemap] = useState<Basemap>("osm");
+  const [vacancies, setVacancies] =
+    useState<VacancyFeatureCollection>(EMPTY_VACANCY_FC);
+  const [professions, setProfessions] = useState<ProfessionCount[]>([]);
+  const [meta, setMeta] = useState<VacancyMeta | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    void fetchTopProfessions(12).then(setProfessions);
+    void fetchVacanciesMeta().then(setMeta);
+  }, []);
+
+  useEffect(() => {
+    if (!showVacancies) {
+      setVacancies(EMPTY_VACANCY_FC);
+      return;
+    }
+    const filter = selected ?? (search.trim() || undefined);
+    void fetchVacancies(filter).then(setVacancies);
+  }, [showVacancies, selected, search]);
+
+  const yandexAvailable = YANDEX_API_KEY.length > 0;
+  const total = meta?.total ?? 0;
+  const shown = vacancies.features.length;
+
+  const pickProfession = (profession: string) => {
+    setSearch("");
+    setSelected((current) => (current === profession ? null : profession));
+  };
+
+  const submitSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    setSelected(null);
+  };
+
   return (
     <section className="panel">
       <div className="section-title">
         <MapIcon size={18} />
         <h2>Карта открытого контура</h2>
       </div>
-      <MapPanel objects={objects} />
-      <p className="panel-note">
-        Подсвечены все субъекты РФ. Кликните по региону, чтобы увидеть его
-        название, или по объекту — чтобы увидеть карточку с источником данных. В
-        дальнейшем открытые данные (например, координаты работодателей из{" "}
-        <code>opendata.trudvsem.ru</code>) будут сопоставляться к каждому
-        региону.
-      </p>
+      <div className="map-layout">
+        <div className="map-main">
+          <MapPanel
+            objects={objects}
+            vacancies={vacancies}
+            showVacancies={showVacancies}
+            basemap={basemap}
+          />
+          <p className="panel-note">
+            Подсвечены все субъекты РФ. Кликните по региону, объекту или
+            вакансии, чтобы увидеть карточку. Слой вакансий «Работа России»
+            можно включать и выключать; кластеры с цифрами при приближении
+            распадаются на маркеры работодателей.
+          </p>
+        </div>
+        <aside className="map-sidebar" aria-label="Слои и фильтры карты">
+          <div className="layer-toggle">
+            <div className="section-title compact">
+              <Layers size={16} />
+              <h3>Слои карты</h3>
+            </div>
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                checked={showVacancies}
+                onChange={(event) => setShowVacancies(event.target.checked)}
+              />
+              <span>
+                <Briefcase size={14} /> Вакансии «Работа России»
+              </span>
+            </label>
+            <div className="basemap-row">
+              <span>Подложка</span>
+              <div className="basemap-buttons">
+                <button
+                  type="button"
+                  className={basemap === "osm" ? "active" : ""}
+                  onClick={() => setBasemap("osm")}
+                >
+                  OSM
+                </button>
+                <button
+                  type="button"
+                  className={basemap === "yandex" ? "active" : ""}
+                  onClick={() => setBasemap("yandex")}
+                  disabled={!yandexAvailable}
+                  title={
+                    yandexAvailable
+                      ? "Яндекс Карты"
+                      : "Добавьте VITE_YANDEX_API_KEY, чтобы включить Яндекс Карты"
+                  }
+                >
+                  Яндекс
+                </button>
+              </div>
+            </div>
+            {!yandexAvailable && (
+              <p className="sidebar-hint">
+                Подложка Яндекс Карт включается переменной окружения{" "}
+                <code>VITE_YANDEX_API_KEY</code>. По умолчанию используется OSM,
+                а геокодер — бесплатный Nominatim (≤1 запрос/с).
+              </p>
+            )}
+          </div>
+
+          {showVacancies && (
+            <div className="vacancy-panel">
+              <form className="vacancy-search" onSubmit={submitSearch}>
+                <Search size={14} />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Поиск специалиста..."
+                  aria-label="Поиск профессии"
+                />
+              </form>
+              <div className="vacancy-count">
+                Показано <strong>{shown}</strong>
+                {total ? ` из ${total}` : ""} вакансий
+                {selected ? ` · «${selected}»` : ""}
+                {(selected || search) && (
+                  <button
+                    type="button"
+                    className="clear-filter"
+                    onClick={() => {
+                      setSelected(null);
+                      setSearch("");
+                    }}
+                  >
+                    сбросить
+                  </button>
+                )}
+              </div>
+              <div className="profession-list" aria-label="Топ профессий">
+                {professions.map((item) => {
+                  const max = professions[0]?.count || 1;
+                  const width = Math.round((item.count / max) * 100);
+                  const active = selected === item.profession;
+                  return (
+                    <button
+                      key={item.profession}
+                      type="button"
+                      className={`profession-row${active ? " active" : ""}`}
+                      onClick={() => pickProfession(item.profession)}
+                    >
+                      <span
+                        className="profession-bar"
+                        style={{ width: `${width}%` }}
+                      />
+                      <span className="profession-name">{item.profession}</span>
+                      <span className="profession-count">{item.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {meta && (
+                <p className="sidebar-hint">
+                  Источник: {meta.source}. Обновление каждые{" "}
+                  {(meta.refresh_interval_hours / 24).toFixed(1)} суток,
+                  инкрементально по <code>{meta.incremental_param}</code>.
+                  Геокодер: {meta.geocoder}.
+                </p>
+              )}
+            </div>
+          )}
+        </aside>
+      </div>
     </section>
   );
 }
@@ -510,8 +908,17 @@ function ScenariosView({
   );
 }
 
-function CatalogView({ datasets }: { datasets: DatasetPassport[] }) {
+function CatalogView({
+  datasets,
+  session,
+}: {
+  datasets: DatasetPassport[];
+  session: Session;
+}) {
   const [domain, setDomain] = useState<string>("");
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const isOperator = session.role === "operator";
   const domains = useMemo(
     () => Array.from(new Set(datasets.map((dataset) => dataset.domain))).sort(),
     [datasets],
@@ -519,6 +926,20 @@ function CatalogView({ datasets }: { datasets: DatasetPassport[] }) {
   const filtered = domain
     ? datasets.filter((dataset) => dataset.domain === domain)
     : datasets;
+
+  const download = async (datasetId: string) => {
+    setDownloading(datasetId);
+    setError(null);
+    try {
+      await downloadDatasetCsv(session, datasetId);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Не удалось скачать данные.",
+      );
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   return (
     <section className="panel">
@@ -538,6 +959,17 @@ function CatalogView({ datasets }: { datasets: DatasetPassport[] }) {
           ))}
         </select>
       </div>
+      {isOperator ? (
+        <p className="panel-note">
+          Режим оператора платформы: доступна выгрузка сырых данных (CSV) по
+          каждому датасету.
+        </p>
+      ) : (
+        <p className="panel-note">
+          Выгрузка сырых данных (CSV) доступна только операторам платформы.
+        </p>
+      )}
+      {error && <p className="login-error">{error}</p>}
       <div className="catalog-scroll">
         <table>
           <thead>
@@ -549,6 +981,7 @@ function CatalogView({ datasets }: { datasets: DatasetPassport[] }) {
               <th>Лицензия</th>
               <th>Качество</th>
               <th>Ограничения</th>
+              {isOperator && <th>Сырые данные</th>}
             </tr>
           </thead>
           <tbody>
@@ -569,6 +1002,19 @@ function CatalogView({ datasets }: { datasets: DatasetPassport[] }) {
                   </span>
                 </td>
                 <td>{dataset.known_limitations.join("; ")}</td>
+                {isOperator && (
+                  <td>
+                    <button
+                      type="button"
+                      className="download-button"
+                      onClick={() => void download(dataset.id)}
+                      disabled={downloading === dataset.id}
+                    >
+                      <Download size={14} />
+                      {downloading === dataset.id ? "..." : "CSV"}
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -578,19 +1024,49 @@ function CatalogView({ datasets }: { datasets: DatasetPassport[] }) {
   );
 }
 
-function ReportsView({ run }: { run: ScenarioRun | null }) {
+function ReportsView({
+  run,
+  metrics,
+}: {
+  run: ScenarioRun | null;
+  metrics: {
+    datasets: number;
+    domains: number;
+    scenarios: number;
+    objects: number;
+  };
+}) {
   return (
     <section className="panel">
       <div className="section-title">
         <FileDown size={18} />
         <h2>Отчёты</h2>
       </div>
+      <section className="metrics" aria-label="Метрики готовности">
+        <article>
+          <span>датасеты</span>
+          <strong>{metrics.datasets || "..."}</strong>
+        </article>
+        <article>
+          <span>домены</span>
+          <strong>{metrics.domains || "..."}</strong>
+        </article>
+        <article>
+          <span>сценарии</span>
+          <strong>{metrics.scenarios || "..."}</strong>
+        </article>
+        <article>
+          <span>объекты карты</span>
+          <strong>{metrics.objects || "..."}</strong>
+        </article>
+      </section>
       {run ? (
         <RunResultView run={run} />
       ) : (
         <p className="panel-note">
           Запустите или откройте сценарий на вкладке «Сценарии», чтобы здесь
-          появился отчёт с источниками и версиями данных.
+          появился отчёт с источниками и версиями данных. Метрики готовности
+          открытого контура показаны выше.
         </p>
       )}
     </section>
@@ -737,7 +1213,7 @@ function Workspace({
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h1>Цифровой двойник России v0.1.3</h1>
+            <h1>Цифровой двойник России v0.1.4</h1>
             <p>
               Открытый контур: каталоги, сценарии, отчёты и аудит на
               демо-данных.
@@ -758,25 +1234,6 @@ function Workspace({
           </div>
         </header>
 
-        <section className="metrics" aria-label="Метрики готовности">
-          <article>
-            <span>датасеты</span>
-            <strong>{datasets.length || "..."}</strong>
-          </article>
-          <article>
-            <span>домены</span>
-            <strong>{domains.length || "..."}</strong>
-          </article>
-          <article>
-            <span>сценарии</span>
-            <strong>{scenarios.length || "..."}</strong>
-          </article>
-          <article>
-            <span>объекты карты</span>
-            <strong>{objects.length || "..."}</strong>
-          </article>
-        </section>
-
         {view === "map" && <MapView objects={objects} />}
         {view === "scenarios" && (
           <ScenariosView
@@ -785,8 +1242,20 @@ function Workspace({
             onRun={setLastRun}
           />
         )}
-        {view === "catalog" && <CatalogView datasets={datasets} />}
-        {view === "reports" && <ReportsView run={lastRun} />}
+        {view === "catalog" && (
+          <CatalogView datasets={datasets} session={session} />
+        )}
+        {view === "reports" && (
+          <ReportsView
+            run={lastRun}
+            metrics={{
+              datasets: datasets.length,
+              domains: domains.length,
+              scenarios: scenarios.length,
+              objects: objects.length,
+            }}
+          />
+        )}
         {view === "account" && (
           <AccountView session={session} onLogout={onLogout} />
         )}

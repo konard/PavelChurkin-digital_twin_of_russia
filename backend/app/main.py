@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.auth import DEMO_ACCOUNTS, authenticate
 from backend.app.export import render_markdown, render_pdf
 from backend.app.gateway import require_open_contour, require_write_role
+from backend.app.raw_export import build_dataset_csv
 from backend.app.schemas import (
     ApiKeyRequest,
     ApiKeyResponse,
@@ -25,8 +26,9 @@ from backend.app.schemas import (
     TwinObject,
 )
 from backend.app.store import DemoStore
+from backend.app.vacancies_service import VacancyService
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 
 app = FastAPI(
     title="API Цифрового двойника России",
@@ -43,6 +45,7 @@ app.add_middleware(
 )
 
 store = DemoStore()
+vacancy_service = VacancyService()
 
 
 @app.middleware("http")
@@ -130,6 +133,61 @@ def get_dataset(dataset_id: str) -> DatasetPassport:
         ) from exc
     require_open_contour(dataset)
     return dataset
+
+
+@app.get("/api/v1/catalog/datasets/{dataset_id}/download")
+def download_dataset_csv(
+    dataset_id: str,
+    x_role: Annotated[str | None, Header(alias="X-Role")] = None,
+    x_actor: Annotated[str | None, Header(alias="X-Actor")] = None,
+) -> Response:
+    """Сырые данные датасета в CSV. Доступно только операторам платформы."""
+
+    role = _role(x_role)
+    if role != "operator":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Выгрузка сырых данных доступна только операторам платформы.",
+        )
+    if dataset_id not in store.datasets:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Датасет не найден")
+    dataset = store.datasets[dataset_id]
+    require_open_contour(dataset)
+    filename, csv_text = build_dataset_csv(store, dataset_id)
+    store.audit_log.append(
+        actor=x_actor or "operator",
+        role=role,
+        action="catalog.download_raw",
+        contour="open",
+        target_id=dataset_id,
+        data_versions={"source_version": dataset.source_version.isoformat()},
+    )
+    return Response(
+        csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/v1/vacancies")
+def get_vacancies(profession: Annotated[str | None, Query()] = None) -> dict:
+    """Слой вакансий «Работа России» как GeoJSON для кластеров и теплокарты."""
+
+    return vacancy_service.geojson(profession=profession)
+
+
+@app.get("/api/v1/vacancies/professions")
+def get_top_professions(limit: Annotated[int, Query(ge=1, le=100)] = 12) -> list[dict]:
+    """Топ профессий по числу вакансий для сайдбара и гистограммы."""
+
+    return vacancy_service.top_professions(limit=limit)
+
+
+@app.get("/api/v1/vacancies/meta")
+def get_vacancies_meta() -> dict:
+    """Метаданные слоя вакансий: источник, объём, периодичность обновления."""
+
+    return vacancy_service.meta()
 
 
 @app.get("/api/v1/layers", response_model=list[Layer])
