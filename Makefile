@@ -1,4 +1,4 @@
-.PHONY: install install-backend install-frontend dev-backend dev-frontend lint test seed-open-data up down migrate
+.PHONY: install install-backend install-frontend dev-backend dev-frontend lint test seed-open-data up down migrate setup-mirror
 
 install: install-backend install-frontend
 
@@ -34,3 +34,6 @@ up:
 
 down:
 	docker compose -f infra/docker-compose.yml down
+
+setup-mirror:
+	bash infra/setup-mirror.sh --apply
