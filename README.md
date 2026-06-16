@@ -148,6 +148,51 @@ make down
 |---|---|---|
 | ![Карта](docs/screenshots/v0.1.4-map-vacancies.png?raw=true) | ![Каталог](docs/screenshots/v0.1.4-catalog-operator.png?raw=true) | ![Отчёты](docs/screenshots/v0.1.4-reports-metrics.png?raw=true) |
 
+## Устранение неполадок
+
+### `make up` падает с ошибкой «encountered unknown type text/html»
+
+Docker не может скачать образы с Docker Hub (`docker.io`), так как реестр
+заблокирован или недоступен из вашей сети. Настройте зеркало с помощью
+встроенного скрипта:
+
+**Linux / macOS:**
+
+```bash
+make setup-mirror   # применяет зеркала и перезапускает Docker Engine (Linux)
+# На macOS перезапустите Docker Desktop вручную после выполнения
+```
+
+или напрямую:
+
+```bash
+bash infra/setup-mirror.sh --apply
+```
+
+**Windows (PowerShell от имени администратора):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File infra\setup-mirror.ps1 -Apply
+```
+
+Скрипт добавляет следующие зеркала в конфигурацию Docker (`daemon.json`):
+`huecker.io`, `dockerhub.timeweb.cloud`, `mirror.gcr.io`.
+
+**Вручную через Docker Desktop:**
+
+1. Откройте Docker Desktop → Настройки (⚙) → Docker Engine.
+2. Добавьте в JSON:
+   ```json
+   {
+     "registry-mirrors": [
+       "https://huecker.io",
+       "https://dockerhub.timeweb.cloud",
+       "https://mirror.gcr.io"
+     ]
+   }
+   ```
+3. Нажмите **Apply & Restart**, затем выполните `make up`.
+
 ## Проверка
 
 Тесты бэкенда фиксируют контракты v0.1:
