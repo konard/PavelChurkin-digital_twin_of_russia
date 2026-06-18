@@ -21,6 +21,17 @@ if TYPE_CHECKING:  # pragma: no cover
     from backend.app.schemas import TwinObject
     from backend.app.store import DemoStore
 
+# UTF-8 BOM. Без него Excel под Windows с русской локалью читает CSV как
+# windows-1251 и превращает кириллицу в «кракозябры» (issue #17). BOM —
+# стандартный способ заставить Excel распознать кодировку UTF-8.
+_BOM = "﻿"
+
+
+def with_bom(csv_text: str) -> str:
+    """Добавить UTF-8 BOM к CSV, если его ещё нет."""
+
+    return csv_text if csv_text.startswith(_BOM) else _BOM + csv_text
+
 
 def _centroid(geometry: dict) -> tuple[float | None, float | None]:
     coords = geometry.get("coordinates")
@@ -105,9 +116,9 @@ def build_dataset_csv(store: DemoStore, dataset_id: str) -> tuple[str, str]:
     """Вернуть ``(имя_файла, текст_csv)`` сырых данных датасета."""
 
     if dataset_id == "trudvsem-opendata":
-        return "trudvsem-vacancies.csv", vacancies_csv_text()
+        return "trudvsem-vacancies.csv", with_bom(vacancies_csv_text())
 
     objects = _objects_for_dataset(store, dataset_id)
     if objects:
-        return f"{dataset_id}-objects.csv", _objects_csv(objects)
-    return f"{dataset_id}-passport.csv", _passport_csv(store, dataset_id)
+        return f"{dataset_id}-objects.csv", with_bom(_objects_csv(objects))
+    return f"{dataset_id}-passport.csv", with_bom(_passport_csv(store, dataset_id))

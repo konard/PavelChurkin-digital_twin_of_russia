@@ -179,6 +179,10 @@ def stream_remote_lines(
     Аналог ``requests.get(stream=True)``: данные читаются порциями из сетевого
     потока и сразу разбираются. По умолчанию используется стандартный
     ``urllib`` без дополнительных зависимостей.
+
+    ``errors="replace"`` защищает от падения, если реальная выгрузка отдаётся
+    в windows-1251, а не в UTF-8 (issue #17): отдельные байты заменяются, но
+    поток не обрывается ошибкой декодирования.
     """
 
     open_fn = opener or urllib.request.urlopen  # noqa: S310
@@ -186,7 +190,7 @@ def stream_remote_lines(
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     response = open_fn(request)  # type: ignore[operator]
     with response:
-        stream = io.TextIOWrapper(response, encoding=encoding, newline="")
+        stream = io.TextIOWrapper(response, encoding=encoding, errors="replace", newline="")
         yield from stream
 
 

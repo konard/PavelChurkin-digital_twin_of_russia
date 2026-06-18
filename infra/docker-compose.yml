@@ -89,6 +89,13 @@ services:
     build:
       context: ..
       dockerfile: frontend/Dockerfile
+      # Vite запекает переменные VITE_* при сборке, поэтому ключ Яндекса и адрес
+      # API передаём как build-args. Чтобы сменить подложку на Яндекс, задайте
+      # VITE_YANDEX_API_KEY и пересоберите образ: `make build && make up`
+      # (простой перезапуск контейнера не пересобирает бандл) — issue #17.
+      args:
+        VITE_YANDEX_API_KEY: ${VITE_YANDEX_API_KEY:-}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     ports:
       - "5173:80"
     depends_on:
