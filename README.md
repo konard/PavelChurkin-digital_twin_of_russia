@@ -170,6 +170,10 @@ make down
   а фронтенд инкрементально догружает слой порциями по 5000 каждые 5 секунд,
   пока не наберёт весь объём выгрузки.
 
+| Клик по вакансии: было (карточка региона) | Клик по вакансии: стало (карточка вакансии) | Карта: загружено 5400 вакансий |
+|---|---|---|
+| ![Было](docs/screenshots/v0.1.5-vacancy-popup-before.png?raw=true) | ![Стало](docs/screenshots/v0.1.5-vacancy-popup-after.png?raw=true) | ![Карта](docs/screenshots/v0.1.5-map-5400-vacancies.png?raw=true) |
+
 ## Устранение неполадок
 
 ### `make up` падает с ошибкой «encountered unknown type text/html»
