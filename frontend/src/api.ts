@@ -11,6 +11,7 @@ import type {
   TwinObject,
   VacancyFeatureCollection,
   VacancyMeta,
+  VacancyPage,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -134,13 +135,37 @@ const EMPTY_VACANCIES: VacancyFeatureCollection = {
   features: [],
 };
 
-export function fetchVacancies(profession?: string) {
-  const query = profession
-    ? `?profession=${encodeURIComponent(profession)}`
-    : "";
-  return getJson<VacancyFeatureCollection>(
-    `/api/v1/vacancies${query}`,
-    EMPTY_VACANCIES,
+const EMPTY_VACANCY_PAGE: VacancyPage = {
+  ...EMPTY_VACANCIES,
+  total: 0,
+  offset: 0,
+  returned: 0,
+};
+
+/**
+ * Загрузить одну страницу слоя вакансий. ``offset``/``limit`` обеспечивают
+ * инкрементальную догрузку: фронтенд листает страницы, пока не наберёт
+ * ``total`` (issue #17).
+ */
+export function fetchVacancies(
+  profession?: string,
+  offset = 0,
+  limit?: number,
+) {
+  const params = new URLSearchParams();
+  if (profession) {
+    params.set("profession", profession);
+  }
+  if (offset > 0) {
+    params.set("offset", String(offset));
+  }
+  if (limit !== undefined) {
+    params.set("limit", String(limit));
+  }
+  const query = params.toString();
+  return getJson<VacancyPage>(
+    `/api/v1/vacancies${query ? `?${query}` : ""}`,
+    EMPTY_VACANCY_PAGE,
   );
 }
 

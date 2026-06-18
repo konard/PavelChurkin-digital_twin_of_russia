@@ -109,6 +109,13 @@ export type VacancyFeatureCollection = GeoJSON.FeatureCollection<
   }
 >;
 
+/** Страница слоя вакансий с метаданными для инкрементальной догрузки. */
+export type VacancyPage = VacancyFeatureCollection & {
+  total: number;
+  offset: number;
+  returned: number;
+};
+
 export interface RoleInfo {
   role: Role;
   display_name: string;

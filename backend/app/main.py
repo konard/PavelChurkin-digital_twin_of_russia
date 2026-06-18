@@ -170,10 +170,18 @@ def download_dataset_csv(
 
 
 @app.get("/api/v1/vacancies")
-def get_vacancies(profession: Annotated[str | None, Query()] = None) -> dict:
-    """Слой вакансий «Работа России» как GeoJSON для кластеров и теплокарты."""
+def get_vacancies(
+    profession: Annotated[str | None, Query()] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int | None, Query(ge=1, le=50000)] = None,
+) -> dict:
+    """Слой вакансий «Работа России» как GeoJSON для кластеров и теплокарты.
 
-    return vacancy_service.geojson(profession=profession)
+    ``offset``/``limit`` дают инкрементальную (постраничную) загрузку: фронтенд
+    догружает вакансии порциями, пока не наберёт ``total`` (issue #17).
+    """
+
+    return vacancy_service.geojson(profession=profession, offset=offset, limit=limit)
 
 
 @app.get("/api/v1/vacancies/professions")

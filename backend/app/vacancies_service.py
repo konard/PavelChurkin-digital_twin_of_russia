@@ -45,29 +45,51 @@ class VacancyService:
         needle = profession.strip().lower()
         return [v for v in self.vacancies if needle in v.profession.lower()]
 
-    def geojson(self, *, profession: str | None = None) -> dict:
-        features = []
-        for vacancy in self._filter(profession):
-            if not vacancy.has_point:
-                continue
-            features.append(
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [vacancy.lon, vacancy.lat],
-                    },
-                    "properties": {
-                        "id": vacancy.id,
-                        "profession": vacancy.profession,
-                        "employer": vacancy.employer,
-                        "region": vacancy.region,
-                        "salary": _format_salary(vacancy),
-                        "url": vacancy.url,
-                    },
-                }
-            )
-        return {"type": "FeatureCollection", "features": features}
+    @staticmethod
+    def _feature(vacancy: Vacancy) -> dict:
+        return {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [vacancy.lon, vacancy.lat],
+            },
+            "properties": {
+                "id": vacancy.id,
+                "profession": vacancy.profession,
+                "employer": vacancy.employer,
+                "region": vacancy.region,
+                "salary": _format_salary(vacancy),
+                "url": vacancy.url,
+            },
+        }
+
+    def geojson(
+        self,
+        *,
+        profession: str | None = None,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> dict:
+        """Слой вакансий как GeoJSON с постраничной (инкрементальной) отдачей.
+
+        ``offset``/``limit`` позволяют фронтенду догружать вакансии порциями
+        (issue #17: непрерывная подгрузка по мере появления данных), а поле
+        ``total`` сообщает полный объём текущего среза, чтобы клиент знал,
+        сколько ещё страниц осталось.
+        """
+
+        points = [v for v in self._filter(profession) if v.has_point]
+        total = len(points)
+        start = max(offset, 0)
+        page = points[start:] if limit is None else points[start : start + limit]
+        features = [self._feature(vacancy) for vacancy in page]
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+            "total": total,
+            "offset": start,
+            "returned": len(features),
+        }
 
     def top_professions(self, *, limit: int = 12) -> list[dict]:
         counter: Counter[str] = Counter(v.profession for v in self.vacancies)

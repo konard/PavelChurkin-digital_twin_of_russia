@@ -140,6 +140,191 @@ function vacancyPopupHtml(properties: Record<string, unknown>): string {
     </div>`;
 }
 
+const EMPTY_VACANCY_FC: VacancyFeatureCollection = {
+  type: "FeatureCollection",
+  features: [],
+};
+
+// Слои, у вакансий/объектов которых приоритет над подложкой регионов: клик по
+// ним не должен «проваливаться» в попап региона (issue #17).
+const PRIORITY_LAYERS = [
+  "obj-fill",
+  "obj-line",
+  "obj-points",
+  "vac-clusters",
+  "vac-points",
+];
+
+// Слои вакансий, которые включаются/выключаются тумблером «Вакансии».
+const VACANCY_LAYERS = [
+  "vac-heat",
+  "vac-clusters",
+  "vac-cluster-count",
+  "vac-points",
+];
+
+function objectFeatureCollection(
+  objects: TwinObject[],
+): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: objects.map((item) => ({
+      type: "Feature",
+      properties: { id: item.id, name: item.name, html: objectPopupHtml(item) },
+      geometry: item.geometry as GeoJSON.Geometry,
+    })),
+  };
+}
+
+function buildMapStyle(basemap: Basemap): StyleSpecification {
+  const vacancyLayers: StyleSpecification["layers"] = [
+    {
+      id: "vac-heat",
+      type: "heatmap",
+      source: "vacancies-heat",
+      maxzoom: 9,
+      paint: {
+        "heatmap-weight": 1,
+        "heatmap-intensity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          0,
+          0.6,
+          9,
+          2,
+        ],
+        "heatmap-color": [
+          "interpolate",
+          ["linear"],
+          ["heatmap-density"],
+          0,
+          "rgba(33,102,172,0)",
+          0.2,
+          "#74add1",
+          0.4,
+          "#fee090",
+          0.6,
+          "#fdae61",
+          0.8,
+          "#f46d43",
+          1,
+          "#d73027",
+        ],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 6, 9, 24],
+        "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0.8, 9, 0],
+      },
+    },
+    {
+      id: "vac-clusters",
+      type: "circle",
+      source: "vacancies",
+      filter: ["has", "point_count"],
+      paint: {
+        "circle-color": [
+          "step",
+          ["get", "point_count"],
+          "#22c55e",
+          10,
+          "#eab308",
+          30,
+          "#ef4444",
+        ],
+        "circle-radius": ["step", ["get", "point_count"], 16, 10, 22, 30, 30],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 2,
+      },
+    },
+    {
+      id: "vac-cluster-count",
+      type: "symbol",
+      source: "vacancies",
+      filter: ["has", "point_count"],
+      layout: {
+        "text-field": "{point_count_abbreviated}",
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 12,
+      },
+      paint: { "text-color": "#ffffff" },
+    },
+    {
+      id: "vac-points",
+      type: "circle",
+      source: "vacancies",
+      filter: ["!", ["has", "point_count"]],
+      paint: {
+        "circle-color": "#7c3aed",
+        "circle-radius": 7,
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 2,
+      },
+    },
+  ];
+
+  return {
+    version: 8,
+    glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+    sources: {
+      basemap: basemapSource(basemap),
+      regions: { type: "geojson", data: "/regions-russia.geojson" },
+      objects: {
+        type: "geojson",
+        data: EMPTY_VACANCY_FC,
+      },
+      vacancies: {
+        type: "geojson",
+        data: EMPTY_VACANCY_FC,
+        cluster: true,
+        clusterRadius: 50,
+        clusterMaxZoom: 14,
+      },
+      "vacancies-heat": { type: "geojson", data: EMPTY_VACANCY_FC },
+    },
+    layers: [
+      { id: "basemap", type: "raster", source: "basemap" },
+      {
+        id: "regions-fill",
+        type: "fill",
+        source: "regions",
+        paint: { "fill-color": "#3b82f6", "fill-opacity": 0.12 },
+      },
+      {
+        id: "regions-outline",
+        type: "line",
+        source: "regions",
+        paint: { "line-color": "#1d4ed8", "line-width": 0.8 },
+      },
+      {
+        id: "obj-fill",
+        type: "fill",
+        source: "objects",
+        filter: ["==", ["geometry-type"], "Polygon"],
+        paint: { "fill-color": "#dc2626", "fill-opacity": 0.4 },
+      },
+      {
+        id: "obj-line",
+        type: "line",
+        source: "objects",
+        filter: ["==", ["geometry-type"], "LineString"],
+        paint: { "line-color": "#2563eb", "line-width": 3 },
+      },
+      {
+        id: "obj-points",
+        type: "circle",
+        source: "objects",
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-color": "#0f766e",
+          "circle-radius": 7,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 2,
+        },
+      },
+      ...vacancyLayers,
+    ],
+  };
+}
+
 function MapPanel({
   objects,
   vacancies,
@@ -152,208 +337,38 @@ function MapPanel({
   basemap: Basemap;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const readyRef = useRef(false);
   const cameraRef = useRef<{ center: [number, number]; zoom: number }>({
     center: [94, 64],
     zoom: 2.4,
   });
 
+  // Последние данные держим в ref, чтобы обработчик `load` и эффекты
+  // обновления источников всегда видели актуальные значения, а карта при этом
+  // не пересоздавалась на каждое изменение (иначе инкрементальная догрузка
+  // вакансий каждые 5 секунд приводила бы к полному перестроению карты).
+  const objectsRef = useRef(objects);
+  const vacanciesRef = useRef(vacancies);
+  const showVacanciesRef = useRef(showVacancies);
+  objectsRef.current = objects;
+  vacanciesRef.current = vacancies;
+  showVacanciesRef.current = showVacancies;
+
+  // Создание карты — один раз на выбранную подложку.
   useEffect(() => {
     if (!ref.current) {
       return;
     }
-    const objectFeatures: GeoJSON.Feature[] = objects.map((item) => ({
-      type: "Feature",
-      properties: { id: item.id, name: item.name, html: objectPopupHtml(item) },
-      geometry: item.geometry as GeoJSON.Geometry,
-    }));
-
-    const vacancyLayers: StyleSpecification["layers"] =
-      showVacancies && vacancies.features.length > 0
-        ? [
-            {
-              id: "vac-heat",
-              type: "heatmap",
-              source: "vacancies-heat",
-              maxzoom: 9,
-              paint: {
-                "heatmap-weight": 1,
-                "heatmap-intensity": [
-                  "interpolate",
-                  ["linear"],
-                  ["zoom"],
-                  0,
-                  0.6,
-                  9,
-                  2,
-                ],
-                "heatmap-color": [
-                  "interpolate",
-                  ["linear"],
-                  ["heatmap-density"],
-                  0,
-                  "rgba(33,102,172,0)",
-                  0.2,
-                  "#74add1",
-                  0.4,
-                  "#fee090",
-                  0.6,
-                  "#fdae61",
-                  0.8,
-                  "#f46d43",
-                  1,
-                  "#d73027",
-                ],
-                "heatmap-radius": [
-                  "interpolate",
-                  ["linear"],
-                  ["zoom"],
-                  0,
-                  6,
-                  9,
-                  24,
-                ],
-                "heatmap-opacity": [
-                  "interpolate",
-                  ["linear"],
-                  ["zoom"],
-                  7,
-                  0.8,
-                  9,
-                  0,
-                ],
-              },
-            },
-            {
-              id: "vac-clusters",
-              type: "circle",
-              source: "vacancies",
-              filter: ["has", "point_count"],
-              paint: {
-                "circle-color": [
-                  "step",
-                  ["get", "point_count"],
-                  "#22c55e",
-                  10,
-                  "#eab308",
-                  30,
-                  "#ef4444",
-                ],
-                "circle-radius": [
-                  "step",
-                  ["get", "point_count"],
-                  16,
-                  10,
-                  22,
-                  30,
-                  30,
-                ],
-                "circle-stroke-color": "#ffffff",
-                "circle-stroke-width": 2,
-              },
-            },
-            {
-              id: "vac-cluster-count",
-              type: "symbol",
-              source: "vacancies",
-              filter: ["has", "point_count"],
-              layout: {
-                "text-field": "{point_count_abbreviated}",
-                "text-font": ["Noto Sans Regular"],
-                "text-size": 12,
-              },
-              paint: { "text-color": "#ffffff" },
-            },
-            {
-              id: "vac-points",
-              type: "circle",
-              source: "vacancies",
-              filter: ["!", ["has", "point_count"]],
-              paint: {
-                "circle-color": "#7c3aed",
-                "circle-radius": 7,
-                "circle-stroke-color": "#ffffff",
-                "circle-stroke-width": 2,
-              },
-            },
-          ]
-        : [];
-
-    const style: StyleSpecification = {
-      version: 8,
-      glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-      sources: {
-        basemap: basemapSource(basemap),
-        regions: {
-          type: "geojson",
-          data: "/regions-russia.geojson",
-        },
-        objects: {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: objectFeatures },
-        },
-        vacancies: {
-          type: "geojson",
-          data: vacancies,
-          cluster: true,
-          clusterRadius: 50,
-          clusterMaxZoom: 14,
-        },
-        "vacancies-heat": {
-          type: "geojson",
-          data: vacancies,
-        },
-      },
-      layers: [
-        { id: "basemap", type: "raster", source: "basemap" },
-        {
-          id: "regions-fill",
-          type: "fill",
-          source: "regions",
-          paint: { "fill-color": "#3b82f6", "fill-opacity": 0.12 },
-        },
-        {
-          id: "regions-outline",
-          type: "line",
-          source: "regions",
-          paint: { "line-color": "#1d4ed8", "line-width": 0.8 },
-        },
-        {
-          id: "obj-fill",
-          type: "fill",
-          source: "objects",
-          filter: ["==", ["geometry-type"], "Polygon"],
-          paint: { "fill-color": "#dc2626", "fill-opacity": 0.4 },
-        },
-        {
-          id: "obj-line",
-          type: "line",
-          source: "objects",
-          filter: ["==", ["geometry-type"], "LineString"],
-          paint: { "line-color": "#2563eb", "line-width": 3 },
-        },
-        {
-          id: "obj-points",
-          type: "circle",
-          source: "objects",
-          filter: ["==", ["geometry-type"], "Point"],
-          paint: {
-            "circle-color": "#0f766e",
-            "circle-radius": 7,
-            "circle-stroke-color": "#ffffff",
-            "circle-stroke-width": 2,
-          },
-        },
-        ...vacancyLayers,
-      ],
-    };
-
+    readyRef.current = false;
     const map = new maplibregl.Map({
       container: ref.current,
-      style,
+      style: buildMapStyle(basemap),
       center: cameraRef.current.center,
       zoom: cameraRef.current.zoom,
       interactive: true,
     });
+    mapRef.current = map;
     map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
       "top-right",
@@ -366,13 +381,37 @@ function MapPanel({
       };
     });
 
+    const applyData = () => {
+      const objectSource = map.getSource("objects") as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      objectSource?.setData(objectFeatureCollection(objectsRef.current));
+      const vac = vacanciesRef.current;
+      (
+        map.getSource("vacancies") as maplibregl.GeoJSONSource | undefined
+      )?.setData(vac);
+      (
+        map.getSource("vacancies-heat") as maplibregl.GeoJSONSource | undefined
+      )?.setData(vac);
+      const visibility = showVacanciesRef.current ? "visible" : "none";
+      for (const layer of VACANCY_LAYERS) {
+        if (map.getLayer(layer)) {
+          map.setLayoutProperty(layer, "visibility", visibility);
+        }
+      }
+    };
+
+    map.on("load", () => {
+      readyRef.current = true;
+      applyData();
+    });
+
     const popup = new maplibregl.Popup({
       closeButton: true,
       closeOnClick: true,
     });
 
-    const objectLayers = ["obj-fill", "obj-line", "obj-points"];
-    for (const layer of objectLayers) {
+    for (const layer of ["obj-fill", "obj-line", "obj-points"]) {
       map.on("click", layer, (event) => {
         const feature = event.features?.[0];
         if (!feature) {
@@ -430,7 +469,16 @@ function MapPanel({
       });
     }
 
+    // Попап региона показываем только если под курсором нет вакансии или
+    // объекта: иначе клик по вакансии «проваливался» в регион и показывал
+    // карточку субъекта вместо вакансии (issue #17).
     map.on("click", "regions-fill", (event) => {
+      const onTop = map.queryRenderedFeatures(event.point, {
+        layers: PRIORITY_LAYERS.filter((layer) => map.getLayer(layer)),
+      });
+      if (onTop.length > 0) {
+        return;
+      }
       const feature = event.features?.[0];
       if (!feature) {
         return;
@@ -445,8 +493,49 @@ function MapPanel({
         .addTo(map);
     });
 
-    return () => map.remove();
-  }, [objects, vacancies, showVacancies, basemap]);
+    return () => {
+      readyRef.current = false;
+      mapRef.current = null;
+      map.remove();
+    };
+  }, [basemap]);
+
+  // Обновление источников без пересоздания карты.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !readyRef.current) {
+      return;
+    }
+    (map.getSource("objects") as maplibregl.GeoJSONSource | undefined)?.setData(
+      objectFeatureCollection(objects),
+    );
+  }, [objects]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !readyRef.current) {
+      return;
+    }
+    (
+      map.getSource("vacancies") as maplibregl.GeoJSONSource | undefined
+    )?.setData(vacancies);
+    (
+      map.getSource("vacancies-heat") as maplibregl.GeoJSONSource | undefined
+    )?.setData(vacancies);
+  }, [vacancies]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !readyRef.current) {
+      return;
+    }
+    const visibility = showVacancies ? "visible" : "none";
+    for (const layer of VACANCY_LAYERS) {
+      if (map.getLayer(layer)) {
+        map.setLayoutProperty(layer, "visibility", visibility);
+      }
+    }
+  }, [showVacancies]);
 
   return (
     <div ref={ref} className="map-canvas" aria-label="Карта регионов России" />
@@ -634,10 +723,11 @@ function RunResultView({ run }: { run: ScenarioRun }) {
   );
 }
 
-const EMPTY_VACANCY_FC: VacancyFeatureCollection = {
-  type: "FeatureCollection",
-  features: [],
-};
+// Размер страницы и период инкрементальной догрузки вакансий (issue #17):
+// слой наполняется порциями по 5000 записей каждые 5 секунд, пока не наберётся
+// весь объём выгрузки.
+const VACANCY_PAGE_SIZE = 5000;
+const VACANCY_POLL_MS = 5000;
 
 function MapView({ objects }: { objects: TwinObject[] }) {
   const [showVacancies, setShowVacancies] = useState(true);
@@ -654,13 +744,43 @@ function MapView({ objects }: { objects: TwinObject[] }) {
     void fetchVacanciesMeta().then(setMeta);
   }, []);
 
+  // Инкрементальная догрузка: грузим вакансии страницами по 5000 и добавляем
+  // к уже показанным каждые 5 секунд, пока не наберём весь объём выгрузки.
+  // Раньше запрашивалась одна страница и на карту попадало максимум столько
+  // вакансий, сколько было в демо-файле (107) — issue #17.
   useEffect(() => {
     if (!showVacancies) {
       setVacancies(EMPTY_VACANCY_FC);
       return;
     }
     const filter = selected ?? (search.trim() || undefined);
-    void fetchVacancies(filter).then(setVacancies);
+    let cancelled = false;
+    let offset = 0;
+    let features: VacancyFeatureCollection["features"] = [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    setVacancies(EMPTY_VACANCY_FC);
+
+    const loadNextPage = async () => {
+      const page = await fetchVacancies(filter, offset, VACANCY_PAGE_SIZE);
+      if (cancelled) {
+        return;
+      }
+      features = features.concat(page.features);
+      offset += page.returned;
+      setVacancies({ type: "FeatureCollection", features });
+      if (page.returned > 0 && offset < page.total) {
+        timer = setTimeout(() => void loadNextPage(), VACANCY_POLL_MS);
+      }
+    };
+
+    void loadNextPage();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    };
   }, [showVacancies, selected, search]);
 
   const yandexAvailable = YANDEX_API_KEY.length > 0;
