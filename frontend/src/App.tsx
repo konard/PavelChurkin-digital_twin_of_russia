@@ -140,6 +140,110 @@ function vacancyPopupHtml(properties: Record<string, unknown>): string {
     </div>`;
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// HTML отдельного окна со списком всех вакансий выбранного специалиста.
+// Issue #19: рядом с каждым специалистом нужна кнопка «все», открывающая
+// в новой вкладке полную таблицу его вакансий со всеми полями (id,
+// работодатель, регион, зарплата, координаты, ссылка).
+function vacancyListDocument(
+  profession: string,
+  features: VacancyFeatureCollection["features"],
+  loading: boolean,
+): string {
+  const title = `Вакансии · ${escapeHtml(profession)}`;
+  const rows = features
+    .map((feature, index) => {
+      const props = feature.properties;
+      const coordinates = (feature.geometry?.coordinates ?? []) as number[];
+      const [lon, lat] = coordinates;
+      const link = props.url
+        ? `<a href="${escapeHtml(props.url)}" target="_blank" rel="noreferrer">открыть</a>`
+        : "—";
+      return `<tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(props.id)}</td>
+        <td>${escapeHtml(props.profession)}</td>
+        <td>${escapeHtml(props.employer) || "—"}</td>
+        <td>${escapeHtml(props.region) || "—"}</td>
+        <td>${escapeHtml(props.salary) || "—"}</td>
+        <td>${lat ?? "—"}, ${lon ?? "—"}</td>
+        <td>${link}</td>
+      </tr>`;
+    })
+    .join("");
+  const body = loading
+    ? `<p class="status">Загрузка вакансий…</p>`
+    : features.length === 0
+      ? `<p class="status">Вакансии с координатами не найдены.</p>`
+      : `<p class="status">Всего вакансий: <strong>${features.length}</strong></p>
+         <table>
+           <thead>
+             <tr>
+               <th>№</th><th>ID</th><th>Профессия</th><th>Работодатель</th>
+               <th>Регион</th><th>Зарплата</th><th>Координаты</th><th>Ссылка</th>
+             </tr>
+           </thead>
+           <tbody>${rows}</tbody>
+         </table>`;
+  return `<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${title}</title>
+<style>
+  body { font-family: system-ui, "Segoe UI", Roboto, sans-serif; margin: 24px; color: #1e293b; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .status { color: #475569; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 13px; }
+  th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; position: sticky; top: 0; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  a { color: #1d4ed8; }
+</style>
+</head>
+<body>
+  <h1>Вакансии: ${escapeHtml(profession)}</h1>
+  ${body}
+</body>
+</html>`;
+}
+
+/**
+ * Открыть в новой вкладке полный список вакансий специалиста (issue #19).
+ * Окно открывается синхронно по клику (иначе сработает блокировщик попапов),
+ * показывает заглушку «Загрузка…», затем заполняется таблицей со всеми полями.
+ */
+async function openVacancyList(profession: string): Promise<void> {
+  // Без флага "noopener": он заставляет window.open вернуть null, и записать
+  // таблицу в новую вкладку было бы нельзя. Ссылку на opener обнуляем вручную.
+  const win = window.open("", "_blank");
+  if (!win) {
+    return;
+  }
+  try {
+    win.opener = null;
+  } catch {
+    // некоторые браузеры запрещают запись win.opener — это не критично
+  }
+  win.document.write(vacancyListDocument(profession, [], true));
+  win.document.close();
+  const page = await fetchVacancies(profession, 0, 50000);
+  if (win.closed) {
+    return;
+  }
+  win.document.open();
+  win.document.write(vacancyListDocument(profession, page.features, false));
+  win.document.close();
+}
+
 const EMPTY_VACANCY_FC: VacancyFeatureCollection = {
   type: "FeatureCollection",
   features: [],
@@ -736,6 +840,9 @@ function RunResultView({ run }: { run: ScenarioRun }) {
 const VACANCY_PAGE_SIZE = 5000;
 const VACANCY_POLL_MS = 5000;
 
+// Сколько профессий показывать в сайдбаре до раскрытия полного списка (#19).
+const PROFESSION_PREVIEW = 10;
+
 function MapView({ objects }: { objects: TwinObject[] }) {
   const [showVacancies, setShowVacancies] = useState(true);
   const [basemap, setBasemap] = useState<Basemap>("osm");
@@ -745,9 +852,13 @@ function MapView({ objects }: { objects: TwinObject[] }) {
   const [meta, setMeta] = useState<VacancyMeta | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [showAllProfessions, setShowAllProfessions] = useState(false);
 
   useEffect(() => {
-    void fetchTopProfessions(12).then(setProfessions);
+    // Грузим полный список профессий (до 100 — максимум эндпоинта), чтобы его
+    // можно было раскрыть целиком. Раньше показывались только первые 12, и при
+    // 5000+ вакансиях остальные специальности были недоступны (issue #19).
+    void fetchTopProfessions(100).then(setProfessions);
     void fetchVacanciesMeta().then(setMeta);
   }, []);
 
@@ -793,6 +904,9 @@ function MapView({ objects }: { objects: TwinObject[] }) {
   const yandexAvailable = YANDEX_API_KEY.length > 0;
   const total = meta?.total ?? 0;
   const shown = vacancies.features.length;
+  const visibleProfessions = showAllProfessions
+    ? professions
+    : professions.slice(0, PROFESSION_PREVIEW);
 
   const pickProfession = (profession: string) => {
     setSearch("");
@@ -903,27 +1017,54 @@ function MapView({ objects }: { objects: TwinObject[] }) {
                   </button>
                 )}
               </div>
-              <div className="profession-list" aria-label="Топ профессий">
-                {professions.map((item) => {
+              <div className="profession-list" aria-label="Список специалистов">
+                {visibleProfessions.map((item) => {
                   const max = professions[0]?.count || 1;
                   const width = Math.round((item.count / max) * 100);
                   const active = selected === item.profession;
                   return (
-                    <button
+                    <div
                       key={item.profession}
-                      type="button"
                       className={`profession-row${active ? " active" : ""}`}
-                      onClick={() => pickProfession(item.profession)}
                     >
-                      <span
-                        className="profession-bar"
-                        style={{ width: `${width}%` }}
-                      />
-                      <span className="profession-name">{item.profession}</span>
-                      <span className="profession-count">{item.count}</span>
-                    </button>
+                      <button
+                        type="button"
+                        className="profession-pick"
+                        onClick={() => pickProfession(item.profession)}
+                        title="Показать на карте только этого специалиста"
+                        aria-pressed={active}
+                      >
+                        <span
+                          className="profession-bar"
+                          style={{ width: `${width}%` }}
+                        />
+                        <span className="profession-name">
+                          {item.profession}
+                        </span>
+                        <span className="profession-count">{item.count}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="profession-all"
+                        onClick={() => void openVacancyList(item.profession)}
+                        title="Открыть полный список вакансий этого специалиста в новой вкладке"
+                      >
+                        все
+                      </button>
+                    </div>
                   );
                 })}
+                {professions.length > PROFESSION_PREVIEW && (
+                  <button
+                    type="button"
+                    className="profession-expand"
+                    onClick={() => setShowAllProfessions((value) => !value)}
+                  >
+                    {showAllProfessions
+                      ? "Свернуть список"
+                      : `Показать все специальности (${professions.length})`}
+                  </button>
+                )}
               </div>
               {meta && (
                 <p className="sidebar-hint">
