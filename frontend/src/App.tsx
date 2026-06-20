@@ -263,7 +263,14 @@ function buildMapStyle(basemap: Basemap): StyleSpecification {
 
   return {
     version: 8,
-    glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+    // Шрифтовые глифы для подписей (счётчики кластеров) держим локально в
+    // public/fonts, а не на внешнем CDN. Публичный сервер
+    // fonts.openmaptiles.org перестал отдавать .pbf (возвращает HTML-страницу),
+    // из-за чего воркер MapLibre падал с «Unimplemented type: 4» и обрывал
+    // генерацию тайлов всего слоя вакансий — точки переставали появляться при
+    // приближении к городу (issue #19). Локальные глифы работают офлайн и в
+    // сетях с блокировками внешних CDN.
+    glyphs: "/fonts/{fontstack}/{range}.pbf",
     sources: {
       basemap: basemapSource(basemap),
       regions: { type: "geojson", data: "/regions-russia.geojson" },
