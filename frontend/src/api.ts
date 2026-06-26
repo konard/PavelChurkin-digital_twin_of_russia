@@ -1,5 +1,6 @@
 import type {
   ApiKeyResponse,
+  AppConfig,
   DatasetPassport,
   Layer,
   LoginResponse,
@@ -9,16 +10,20 @@ import type {
   ScenarioRun,
   Session,
   TwinObject,
+  VacancyCollection,
   VacancyFeatureCollection,
   VacancyMeta,
-  VacancyPage,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
-async function getJson<T>(path: string, fallback: T): Promise<T> {
+async function getJson<T>(
+  path: string,
+  fallback: T,
+  headers?: Record<string, string>,
+): Promise<T> {
   try {
-    const response = await fetch(`${API_BASE}${path}`);
+    const response = await fetch(`${API_BASE}${path}`, { headers });
     if (!response.ok) {
       return fallback;
     }
@@ -34,6 +39,18 @@ function authHeaders(session: Session): Record<string, string> {
     "X-Role": session.role,
     "X-Actor": session.username ?? "guest",
   };
+}
+
+/**
+ * Заголовки роли для GET-запросов слоя вакансий. Бэкенд по ``X-Role`` решает,
+ * сколько вакансий отдать: гостю — одна страница API, остальным — указанное
+ * число (issue #21).
+ */
+function roleHeaders(session?: Session): Record<string, string> {
+  if (!session) {
+    return {};
+  }
+  return { "X-Role": session.role, "X-Actor": session.username ?? "guest" };
 }
 
 export function fetchDatasets() {
@@ -135,49 +152,66 @@ const EMPTY_VACANCIES: VacancyFeatureCollection = {
   features: [],
 };
 
-const EMPTY_VACANCY_PAGE: VacancyPage = {
+const EMPTY_VACANCY_COLLECTION: VacancyCollection = {
   ...EMPTY_VACANCIES,
   total: 0,
-  offset: 0,
+  loaded: 0,
   returned: 0,
 };
 
 /**
- * Загрузить одну страницу слоя вакансий. ``offset``/``limit`` обеспечивают
- * инкрементальную догрузку: фронтенд листает страницы, пока не наберёт
- * ``total`` (issue #17).
+ * Загрузить слой вакансий из открытого API «Работа России» (issue #21).
+ *
+ * ``count`` — сколько вакансий подгрузить. Гостю бэкенд всё равно отдаёт одну
+ * страницу (заголовок ``X-Role`` из ``session``); авторизованным ролям
+ * доступно указанное число. Без ``session`` запрос идёт как гостевой.
  */
 export function fetchVacancies(
   profession?: string,
-  offset = 0,
-  limit?: number,
+  count?: number,
+  session?: Session,
 ) {
   const params = new URLSearchParams();
   if (profession) {
     params.set("profession", profession);
   }
-  if (offset > 0) {
-    params.set("offset", String(offset));
-  }
-  if (limit !== undefined) {
-    params.set("limit", String(limit));
+  if (count !== undefined) {
+    params.set("count", String(count));
   }
   const query = params.toString();
-  return getJson<VacancyPage>(
+  return getJson<VacancyCollection>(
     `/api/v1/vacancies${query ? `?${query}` : ""}`,
-    EMPTY_VACANCY_PAGE,
+    EMPTY_VACANCY_COLLECTION,
+    roleHeaders(session),
   );
 }
 
-export function fetchTopProfessions(limit = 12) {
+export function fetchTopProfessions(
+  limit = 12,
+  count?: number,
+  session?: Session,
+) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (count !== undefined) {
+    params.set("count", String(count));
+  }
   return getJson<ProfessionCount[]>(
-    `/api/v1/vacancies/professions?limit=${limit}`,
+    `/api/v1/vacancies/professions?${params.toString()}`,
     [],
+    roleHeaders(session),
   );
 }
 
 export function fetchVacanciesMeta() {
   return getJson<VacancyMeta | null>("/api/v1/vacancies/meta", null);
+}
+
+/** Рантайм-конфигурация контура (issue #21: ключ Яндекса без пересборки). */
+export function fetchConfig() {
+  return getJson<AppConfig>("/api/v1/config", {
+    yandex_api_key: "",
+    yandex_enabled: false,
+  });
 }
 
 /**
