@@ -134,15 +134,19 @@ def test_fetch_api_vacancies_pages_until_target_with_delay() -> None:
         query = dict(up.parse_qsl(up.urlparse(request.full_url).query))  # type: ignore[attr-defined]
         offset, limit = int(query["offset"]), int(query["limit"])
         calls.append((offset, limit))
-        page = pool[offset : offset + limit]
+        # В API «Работа России» ``offset`` — это номер страницы, а ``limit`` —
+        # её размер: страница ``offset`` покрывает записи ``offset*limit …``.
+        start = offset * limit
+        page = pool[start : start + limit]
         return io.BytesIO(json.dumps(_api_payload(page, total=len(pool))).encode("utf-8"))
 
     vacancies, total = fetch_api_vacancies(220, opener=fake_opener, sleep=delays.append, delay=0.21)
 
     assert len(vacancies) == 220
     assert total == 250
-    # 100 + 100 + 20 = 220 → три страницы, две паузы между ними.
-    assert calls == [(0, 100), (100, 100), (200, 20)]
+    # Три страницы по 100 (последняя — 50, обрезается до 220), две паузы между
+    # ними. ``offset`` растёт по одной странице за раз, а не на число записей.
+    assert calls == [(0, 100), (1, 100), (2, 100)]
     assert delays == [0.21, 0.21]
 
 

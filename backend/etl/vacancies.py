@@ -296,6 +296,7 @@ def fetch_api_page(
 ) -> tuple[list[Vacancy], int]:
     """Запросить одну страницу вакансий из открытого API.
 
+    ``offset`` — номер страницы (0, 1, 2…), ``limit`` — размер страницы (до 100).
     Сетевой доступ вынесен в инъектируемый ``opener``, поэтому функция
     тестируется офлайн на заранее снятом JSON.
     """
@@ -323,25 +324,27 @@ def fetch_api_vacancies(
 ) -> tuple[list[Vacancy], int]:
     """Скачать до ``target`` вакансий, листая API страницами по 100.
 
-    Между запросами выдерживается пауза ``delay`` (по умолчанию 0.21 с), чтобы
-    гарантированно не упереться в лимит источника (issue #21). Возвращает
-    ``(вакансии, всего)``, где ``всего`` — полный объём из ``meta.total``.
+    В API «Работа России» параметр ``offset`` — это НОМЕР СТРАНИЦЫ (0, 1, 2…),
+    а ``limit`` — размер страницы (до 100). Поэтому между запросами номер
+    страницы увеличивается на единицу, а не на число записей. Между запросами
+    выдерживается пауза ``delay`` (по умолчанию 0.21 с), чтобы гарантированно
+    не упереться в лимит источника (issue #21). Возвращает ``(вакансии, всего)``,
+    где ``всего`` — полный объём из ``meta.total``.
     """
 
     wanted = max(0, target)
     collected: list[Vacancy] = []
     total = 0
-    offset = 0
+    page = 0
     while len(collected) < wanted:
-        page_limit = min(API_PAGE_LIMIT, wanted - len(collected))
         vacancies, total = fetch_api_page(
-            offset, page_limit, url=url, opener=opener, timeout=timeout
+            page, API_PAGE_LIMIT, url=url, opener=opener, timeout=timeout
         )
         if not vacancies:
             break
         collected.extend(vacancies)
-        offset += len(vacancies)
-        if total and offset >= total:
+        page += 1
+        if total and len(collected) >= total:
             break
         if len(collected) < wanted:
             sleep(delay)
