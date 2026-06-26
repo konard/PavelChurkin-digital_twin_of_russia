@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Query, Response, status
@@ -26,9 +27,14 @@ from backend.app.schemas import (
     TwinObject,
 )
 from backend.app.store import DemoStore
-from backend.app.vacancies_service import VacancyService
+from backend.app.vacancies_service import (
+    DEFAULT_LIMIT,
+    GUEST_LIMIT,
+    MAX_LIMIT,
+    VacancyService,
+)
 
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 
 app = FastAPI(
     title="API Цифрового двойника России",
@@ -66,6 +72,23 @@ def _role(value: str | None) -> Role:
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", version=VERSION, contour="open")
+
+
+@app.get("/api/v1/config")
+def get_config() -> dict:
+    """Рантайм-конфигурация для фронтенда.
+
+    Issue #21: подложка Яндекс Карт не включалась, потому что ключ
+    ``VITE_YANDEX_API_KEY`` «запекался» в бандл только при сборке — после
+    простого перезапуска контейнера кнопка оставалась неактивной. Теперь ключ
+    можно задать переменной окружения бэкенда (``YANDEX_API_KEY``) и считать её
+    в рантайме: достаточно перезапустить бэкенд, пересборка фронтенда не нужна.
+    """
+
+    yandex_key = (
+        os.environ.get("YANDEX_API_KEY") or os.environ.get("VITE_YANDEX_API_KEY") or ""
+    ).strip()
+    return {"yandex_api_key": yandex_key, "yandex_enabled": bool(yandex_key)}
 
 
 @app.get("/api/v1/auth/roles", response_model=list[RoleInfo])
@@ -153,7 +176,7 @@ def download_dataset_csv(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Датасет не найден")
     dataset = store.datasets[dataset_id]
     require_open_contour(dataset)
-    filename, csv_text = build_dataset_csv(store, dataset_id)
+    filename, csv_text = build_dataset_csv(store, dataset_id, vacancy_service)
     store.audit_log.append(
         actor=x_actor or "operator",
         role=role,
@@ -172,23 +195,33 @@ def download_dataset_csv(
 @app.get("/api/v1/vacancies")
 def get_vacancies(
     profession: Annotated[str | None, Query()] = None,
-    offset: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int | None, Query(ge=1, le=50000)] = None,
+    count: Annotated[int | None, Query(ge=1, le=MAX_LIMIT)] = None,
+    x_role: Annotated[str | None, Header(alias="X-Role")] = None,
 ) -> dict:
-    """Слой вакансий «Работа России» как GeoJSON для кластеров и теплокарты.
+    """Слой вакансий «Работа России» из открытого API как GeoJSON.
 
-    ``offset``/``limit`` дают инкрементальную (постраничную) загрузку: фронтенд
-    догружает вакансии порциями, пока не наберёт ``total`` (issue #17).
+    Issue #21: гостю отдаётся одна страница API (100 вакансий) — один запрос;
+    авторизованные роли могут указать ``count`` и подгрузить нужное число
+    вакансий (постранично, с паузой 0.21 с между запросами к источнику).
     """
 
-    return vacancy_service.geojson(profession=profession, offset=offset, limit=limit)
+    requested = count if count is not None else DEFAULT_LIMIT
+    # Гость ограничен одной страницей API (issue #21: «один запрос апи для гостя»).
+    if _role(x_role) == "guest":
+        requested = GUEST_LIMIT
+    return vacancy_service.geojson(profession=profession, count=requested)
 
 
 @app.get("/api/v1/vacancies/professions")
-def get_top_professions(limit: Annotated[int, Query(ge=1, le=100)] = 12) -> list[dict]:
+def get_top_professions(
+    limit: Annotated[int, Query(ge=1, le=100)] = 12,
+    count: Annotated[int | None, Query(ge=1, le=MAX_LIMIT)] = None,
+) -> list[dict]:
     """Топ профессий по числу вакансий для сайдбара и гистограммы."""
 
-    return vacancy_service.top_professions(limit=limit)
+    return vacancy_service.top_professions(
+        limit=limit, count=count if count is not None else DEFAULT_LIMIT
+    )
 
 
 @app.get("/api/v1/vacancies/meta")
