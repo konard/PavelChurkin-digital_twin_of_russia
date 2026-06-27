@@ -1,23 +1,46 @@
 """Сервис слоя вакансий для API открытого контура.
 
-Загружает демонстрационную выгрузку «Работа России», отдаёт её как GeoJSON
-для кластеризации и тепловой карты на фронтенде, строит топ профессий и
-метаданные слоя (источник, периодичность обновления раз в 1.5 дня).
+Issue #21: демо больше не использует сгенерированные вакансии. Слой питается
+из открытого REST API «Работа России»
+(``https://opendata.trudvsem.ru/api/v1/vacancies``):
+
+* гостю отдаётся одна страница API (100 вакансий) — один запрос;
+* авторизованным ролям показывается полное число вакансий в источнике, и они
+  могут указать, сколько вакансий подгрузить (постранично, с паузой 0.21 с);
+* если сеть недоступна, сервис прозрачно падает на офлайн-срез реальных
+  вакансий (``data/demo/vacancies-sample.json``), снятый с того же API.
 """
 
 from __future__ import annotations
 
+import csv
+import io
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 
 from backend.etl.vacancies import (
-    DEMO_VACANCIES_CSV,
+    API_PAGE_LIMIT,
+    DEMO_VACANCIES_SAMPLE,
     REFRESH_INTERVAL_HOURS,
+    TRUDVSEM_API_URL,
     TRUDVSEM_CSV_URL,
     Vacancy,
-    iter_vacancies,
-    load_demo_vacancies,
+    fetch_api_vacancies,
+    load_sample_vacancies,
 )
+
+# Гостю — одна страница открытого API (issue #21: «один запрос апи для гостя»).
+GUEST_LIMIT = API_PAGE_LIMIT
+# Сколько вакансий грузим по умолчанию, если число не указано.
+DEFAULT_LIMIT = API_PAGE_LIMIT
+# Предохранитель на массовую загрузку авторизованными ролями, чтобы не
+# простаивать на тысячах последовательных запросов к источнику.
+MAX_LIMIT = 5000
+
+# Инъектируемый загрузчик: ``count -> (вакансии, всего)``. По умолчанию —
+# живой API; в тестах подменяется офлайн-функцией.
+VacancyFetcher = Callable[[int], tuple[list[Vacancy], int]]
 
 
 def _money(amount: float) -> str:
@@ -34,16 +57,69 @@ def _format_salary(vacancy: Vacancy) -> str | None:
     return None
 
 
-class VacancyService:
-    def __init__(self, csv_path: Path = DEMO_VACANCIES_CSV) -> None:
-        self.csv_path = csv_path
-        self.vacancies: list[Vacancy] = load_demo_vacancies(csv_path)
+def _clamp(count: int, *, cap: int = MAX_LIMIT) -> int:
+    try:
+        value = int(count)
+    except (TypeError, ValueError):
+        value = DEFAULT_LIMIT
+    return max(1, min(value, cap))
 
-    def _filter(self, profession: str | None) -> list[Vacancy]:
+
+class VacancyService:
+    def __init__(
+        self,
+        fetcher: VacancyFetcher | None = None,
+        *,
+        sample_path: Path = DEMO_VACANCIES_SAMPLE,
+    ) -> None:
+        # По умолчанию — живой API «Работа России».
+        self._fetcher: VacancyFetcher = fetcher or (lambda count: fetch_api_vacancies(count))
+        self._sample_path = sample_path
+        self._sample_cache: tuple[list[Vacancy], int] | None = None
+        self._total_cache: int | None = None
+
+    # --- источники данных ---------------------------------------------------
+
+    def _sample(self) -> tuple[list[Vacancy], int]:
+        if self._sample_cache is None:
+            self._sample_cache = load_sample_vacancies(self._sample_path)
+        return self._sample_cache
+
+    def _load(self, count: int) -> tuple[list[Vacancy], int]:
+        """Подгрузить до ``count`` вакансий с фолбэком на офлайн-срез."""
+
+        count = _clamp(count)
+        vacancies: list[Vacancy] = []
+        total = 0
+        try:
+            vacancies, total = self._fetcher(count)
+        except Exception:  # noqa: BLE001 — сеть недоступна → офлайн-срез
+            vacancies, total = [], 0
+        if not vacancies:
+            sample_vacancies, sample_total = self._sample()
+            vacancies = list(sample_vacancies[:count])
+            total = total or sample_total
+        if total:
+            self._total_cache = total
+        return vacancies, total
+
+    def source_total(self) -> int:
+        """Полное число вакансий в источнике (issue #21: показать пользователю)."""
+
+        if self._total_cache is None:
+            self._load(1)
+        if self._total_cache is None:
+            self._total_cache = self._sample()[1]
+        return self._total_cache
+
+    # --- представление ------------------------------------------------------
+
+    @staticmethod
+    def _filter(vacancies: list[Vacancy], profession: str | None) -> list[Vacancy]:
         if not profession:
-            return self.vacancies
+            return vacancies
         needle = profession.strip().lower()
-        return [v for v in self.vacancies if needle in v.profession.lower()]
+        return [v for v in vacancies if needle in v.profession.lower()]
 
     @staticmethod
     def _feature(vacancy: Vacancy) -> dict:
@@ -67,62 +143,103 @@ class VacancyService:
         self,
         *,
         profession: str | None = None,
-        offset: int = 0,
-        limit: int | None = None,
+        count: int = DEFAULT_LIMIT,
     ) -> dict:
-        """Слой вакансий как GeoJSON с постраничной (инкрементальной) отдачей.
+        """Слой вакансий как GeoJSON.
 
-        ``offset``/``limit`` позволяют фронтенду догружать вакансии порциями
-        (issue #17: непрерывная подгрузка по мере появления данных), а поле
-        ``total`` сообщает полный объём текущего среза, чтобы клиент знал,
-        сколько ещё страниц осталось.
+        ``count`` — сколько вакансий подгрузить из открытого API. ``total`` —
+        полное число вакансий в источнике, ``loaded`` — сколько фактически
+        получено, ``returned`` — сколько из них с координатами попало на карту.
         """
 
-        points = [v for v in self._filter(profession) if v.has_point]
-        total = len(points)
-        start = max(offset, 0)
-        page = points[start:] if limit is None else points[start : start + limit]
-        features = [self._feature(vacancy) for vacancy in page]
+        vacancies, total = self._load(count)
+        filtered = self._filter(vacancies, profession)
+        points = [v for v in filtered if v.has_point]
+        features = [self._feature(vacancy) for vacancy in points]
         return {
             "type": "FeatureCollection",
             "features": features,
             "total": total,
-            "offset": start,
+            "loaded": len(vacancies),
             "returned": len(features),
         }
 
-    def top_professions(self, *, limit: int = 12) -> list[dict]:
-        counter: Counter[str] = Counter(v.profession for v in self.vacancies)
+    def top_professions(self, *, limit: int = 12, count: int = DEFAULT_LIMIT) -> list[dict]:
+        vacancies, _ = self._load(count)
+        counter: Counter[str] = Counter(v.profession for v in vacancies)
         return [
             {"profession": profession, "count": count}
             for profession, count in counter.most_common(limit)
         ]
 
     def meta(self) -> dict:
+        total = self.source_total()
         return {
             "source": "Работа России / «Труд всем»",
+            "source_api_url": TRUDVSEM_API_URL,
             "source_csv_url": TRUDVSEM_CSV_URL,
-            "dataset_id": "trudvsem-opendata",
-            "total": len(self.vacancies),
-            "professions": len({v.profession for v in self.vacancies}),
-            "regions": len({v.region for v in self.vacancies}),
+            "dataset_id": "trudvsem-api",
+            "total": total,
+            "guest_limit": GUEST_LIMIT,
+            "max_limit": MAX_LIMIT,
+            "page_limit": API_PAGE_LIMIT,
+            "request_delay_seconds": 0.21,
             "refresh_interval_hours": REFRESH_INTERVAL_HOURS,
             "incremental_param": "modifiedFrom",
-            "geocoder": "Nominatim (≤1 запрос/сек)",
+            "geocoder": "Координаты из API «Работа России» (addresses.lat/lng)",
             "note": (
-                "Демо-выгрузка. Живой источник — потоковое чтение vacancy.csv "
-                "без сохранения на диск."
+                "Демо берёт первые вакансии из открытого API «Работа России». "
+                "Гостю — одна страница (100 вакансий); авторизованным ролям "
+                "доступна подгрузка указанного числа вакансий."
             ),
         }
 
+    def csv_text(self, *, count: int = DEFAULT_LIMIT) -> str:
+        """Сырой CSV подгруженных вакансий для выгрузки оператором."""
 
-def vacancies_csv_text(csv_path: Path = DEMO_VACANCIES_CSV) -> str:
-    """Сырой CSV вакансий для выгрузки оператором (как есть)."""
+        vacancies, _ = self._load(count)
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, delimiter=";")
+        writer.writerow(
+            [
+                "id",
+                "profession",
+                "employer",
+                "region",
+                "latitude",
+                "longitude",
+                "salary_from",
+                "salary_to",
+                "currency",
+                "url",
+                "modified_at",
+            ]
+        )
+        for vacancy in vacancies:
+            writer.writerow(
+                [
+                    vacancy.id,
+                    vacancy.profession,
+                    vacancy.employer,
+                    vacancy.region,
+                    "" if vacancy.lat is None else f"{vacancy.lat:.6f}",
+                    "" if vacancy.lon is None else f"{vacancy.lon:.6f}",
+                    "" if vacancy.salary_from is None else int(vacancy.salary_from),
+                    "" if vacancy.salary_to is None else int(vacancy.salary_to),
+                    vacancy.currency,
+                    vacancy.url,
+                    vacancy.modified_at or "",
+                ]
+            )
+        return buffer.getvalue()
 
-    return csv_path.read_text(encoding="utf-8")
 
+def offline_vacancy_service(sample_path: Path = DEMO_VACANCIES_SAMPLE) -> VacancyService:
+    """Сервис, работающий только на офлайн-срезе (для тестов без сети)."""
 
-def iter_vacancies_from_text(text: str) -> list[Vacancy]:
-    """Утилита для тестов: разобрать CSV из строки потоково."""
+    sample_vacancies, sample_total = load_sample_vacancies(sample_path)
 
-    return list(iter_vacancies(text.splitlines()))
+    def fetcher(count: int) -> tuple[list[Vacancy], int]:
+        return sample_vacancies[:count], sample_total
+
+    return VacancyService(fetcher=fetcher, sample_path=sample_path)

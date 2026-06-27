@@ -86,15 +86,24 @@ export interface ProfessionCount {
 
 export interface VacancyMeta {
   source: string;
+  source_api_url: string;
   source_csv_url: string;
   dataset_id: string;
   total: number;
-  professions: number;
-  regions: number;
+  guest_limit: number;
+  max_limit: number;
+  page_limit: number;
+  request_delay_seconds: number;
   refresh_interval_hours: number;
   incremental_param: string;
   geocoder: string;
   note: string;
+}
+
+/** Рантайм-конфигурация открытого контура (issue #21: ключ Яндекса). */
+export interface AppConfig {
+  yandex_api_key: string;
+  yandex_enabled: boolean;
 }
 
 export type VacancyFeatureCollection = GeoJSON.FeatureCollection<
@@ -109,10 +118,16 @@ export type VacancyFeatureCollection = GeoJSON.FeatureCollection<
   }
 >;
 
-/** Страница слоя вакансий с метаданными для инкрементальной догрузки. */
-export type VacancyPage = VacancyFeatureCollection & {
+/**
+ * Слой вакансий с метаданными загрузки (issue #21).
+ *
+ * ``total`` — полное число вакансий в источнике, ``loaded`` — сколько
+ * фактически подгружено из открытого API, ``returned`` — сколько из них с
+ * координатами попало на карту.
+ */
+export type VacancyCollection = VacancyFeatureCollection & {
   total: number;
-  offset: number;
+  loaded: number;
   returned: number;
 };
 

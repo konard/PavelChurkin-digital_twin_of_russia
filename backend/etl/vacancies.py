@@ -20,19 +20,32 @@ from __future__ import annotations
 
 import csv
 import io
+import json
+import time
 import urllib.request
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend.etl.geocoding import USER_AGENT
 
 TRUDVSEM_CSV_URL = "https://opendata.trudvsem.ru/csv/vacancy.csv"
+# Открытый REST API «Работа России» (issue #21): отдаёт вакансии страницами
+# по JSON с готовыми координатами в ``addresses.address[].lat/lng``.
+TRUDVSEM_API_URL = "https://opendata.trudvsem.ru/api/v1/vacancies"
+# Максимум записей за один запрос API (документированный лимит источника).
+API_PAGE_LIMIT = 100
+# Задержка между постраничными запросами, чтобы гарантированно не упереться в
+# лимит источника (issue #21: «с задержкой 0.21 с»).
+API_REQUEST_DELAY = 0.21
 # Обновление данных по вакансиям — раз в 1.5 дня (issue #12).
 REFRESH_INTERVAL_HOURS = 36
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEMO_VACANCIES_CSV = REPO_ROOT / "data" / "demo" / "vacancies.csv"
+# Офлайн-срез первых вакансий, снятый с открытого API (issue #21). Используется
+# как фолбэк, когда сеть недоступна, и как детерминированные данные для тестов.
+# Сгенерированный ранее ``vacancies.csv`` удалён: демо питается реальным API.
+DEMO_VACANCIES_SAMPLE = REPO_ROOT / "data" / "demo" / "vacancies-sample.json"
 
 # Кандидаты имён колонок (в нижнем регистре) для устойчивого разбора схемы.
 _COLUMN_CANDIDATES: dict[str, tuple[str, ...]] = {
@@ -216,8 +229,137 @@ def fetch_remote_vacancies(
         yield vacancy
 
 
-def load_demo_vacancies(path: Path = DEMO_VACANCIES_CSV) -> list[Vacancy]:
-    """Прочитать демонстрационную выгрузку вакансий из репозитория."""
+# --- Открытый REST API «Работа России» (issue #21) --------------------------
 
-    with path.open(encoding="utf-8", newline="") as file:
-        return list(iter_vacancies(file))
+
+def vacancy_from_api(payload: dict) -> Vacancy | None:
+    """Разобрать одну вакансию из JSON открытого API в ``Vacancy``.
+
+    API отдаёт координаты прямо в ``addresses.address[].lat/lng``, поэтому для
+    демо геокодер не нужен — точки ставятся сразу. Вакансии без адреса с
+    координатами пропускаются (``None``), чтобы не засорять карту.
+    """
+
+    if not isinstance(payload, dict):
+        return None
+    addresses = (payload.get("addresses") or {}).get("address") or []
+    first = addresses[0] if addresses else {}
+    lat = _to_float(str(first.get("lat") or ""))
+    lon = _to_float(str(first.get("lng") or ""))
+    company = payload.get("company") or {}
+    region = payload.get("region") or {}
+    identifier = str(payload.get("id") or "").strip()
+    if not identifier:
+        return None
+    return Vacancy(
+        id=identifier,
+        profession=str(payload.get("job-name") or "Без названия").strip(),
+        employer=str(company.get("name") or "").strip(),
+        region=str(region.get("name") or "").strip(),
+        lat=lat,
+        lon=lon,
+        salary_from=_to_float(str(payload.get("salary_min") or "")),
+        salary_to=_to_float(str(payload.get("salary_max") or "")),
+        currency=str(payload.get("currency") or "RUB").strip() or "RUB",
+        url=str(payload.get("vac_url") or "").strip(),
+        modified_at=(
+            str(payload.get("date_modify") or payload.get("creation-date") or "").strip() or None
+        ),
+    )
+
+
+def parse_api_response(payload: dict) -> tuple[list[Vacancy], int]:
+    """Разобрать ответ ``GET /api/v1/vacancies`` в ``(вакансии, всего)``.
+
+    ``meta.total`` — полное число вакансий в источнике (issue #21: его нужно
+    показывать пользователю), а ``results.vacancies`` — список текущей страницы.
+    """
+
+    meta = payload.get("meta") or {}
+    total = int(meta.get("total") or 0)
+    raw = (payload.get("results") or {}).get("vacancies") or []
+    vacancies: list[Vacancy] = []
+    for item in raw:
+        vacancy = vacancy_from_api((item or {}).get("vacancy") or {})
+        if vacancy is not None:
+            vacancies.append(vacancy)
+    return vacancies, total
+
+
+def fetch_api_page(
+    offset: int = 0,
+    limit: int = API_PAGE_LIMIT,
+    *,
+    url: str = TRUDVSEM_API_URL,
+    opener: object | None = None,
+    timeout: float = 30.0,
+) -> tuple[list[Vacancy], int]:
+    """Запросить одну страницу вакансий из открытого API.
+
+    ``offset`` — номер страницы (0, 1, 2…), ``limit`` — размер страницы (до 100).
+    Сетевой доступ вынесен в инъектируемый ``opener``, поэтому функция
+    тестируется офлайн на заранее снятом JSON.
+    """
+
+    page_limit = max(1, min(limit, API_PAGE_LIMIT))
+    request = urllib.request.Request(
+        f"{url}?offset={max(offset, 0)}&limit={page_limit}",
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+    )
+    open_fn = opener or urllib.request.urlopen  # noqa: S310
+    response = open_fn(request, timeout=timeout)  # type: ignore[operator,call-arg]
+    with response:
+        payload = json.load(response)
+    return parse_api_response(payload)
+
+
+def fetch_api_vacancies(
+    target: int,
+    *,
+    url: str = TRUDVSEM_API_URL,
+    opener: object | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    delay: float = API_REQUEST_DELAY,
+    timeout: float = 30.0,
+) -> tuple[list[Vacancy], int]:
+    """Скачать до ``target`` вакансий, листая API страницами по 100.
+
+    В API «Работа России» параметр ``offset`` — это НОМЕР СТРАНИЦЫ (0, 1, 2…),
+    а ``limit`` — размер страницы (до 100). Поэтому между запросами номер
+    страницы увеличивается на единицу, а не на число записей. Между запросами
+    выдерживается пауза ``delay`` (по умолчанию 0.21 с), чтобы гарантированно
+    не упереться в лимит источника (issue #21). Возвращает ``(вакансии, всего)``,
+    где ``всего`` — полный объём из ``meta.total``.
+    """
+
+    wanted = max(0, target)
+    collected: list[Vacancy] = []
+    total = 0
+    page = 0
+    while len(collected) < wanted:
+        vacancies, total = fetch_api_page(
+            page, API_PAGE_LIMIT, url=url, opener=opener, timeout=timeout
+        )
+        if not vacancies:
+            break
+        collected.extend(vacancies)
+        page += 1
+        if total and len(collected) >= total:
+            break
+        if len(collected) < wanted:
+            sleep(delay)
+    return collected[:wanted], total or len(collected)
+
+
+def load_sample_vacancies(path: Path = DEMO_VACANCIES_SAMPLE) -> tuple[list[Vacancy], int]:
+    """Прочитать офлайн-срез вакансий, снятый с открытого API (issue #21).
+
+    Возвращает ``(вакансии, всего)``: ``всего`` берётся из ``captured_total`` —
+    числа всех вакансий в источнике на момент снимка.
+    """
+
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    raw = snapshot.get("vacancies") or []
+    vacancies = [v for v in (vacancy_from_api(item) for item in raw) if v is not None]
+    total = int(snapshot.get("captured_total") or len(vacancies))
+    return vacancies, total

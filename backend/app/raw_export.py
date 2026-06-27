@@ -15,11 +15,10 @@ import csv
 import io
 from typing import TYPE_CHECKING
 
-from backend.app.vacancies_service import vacancies_csv_text
-
 if TYPE_CHECKING:  # pragma: no cover
     from backend.app.schemas import TwinObject
     from backend.app.store import DemoStore
+    from backend.app.vacancies_service import VacancyService
 
 # UTF-8 BOM. Без него Excel под Windows с русской локалью читает CSV как
 # windows-1251 и превращает кириллицу в «кракозябры» (issue #17). BOM —
@@ -112,11 +111,15 @@ def _passport_csv(store: DemoStore, dataset_id: str) -> str:
     return buffer.getvalue()
 
 
-def build_dataset_csv(store: DemoStore, dataset_id: str) -> tuple[str, str]:
+def build_dataset_csv(
+    store: DemoStore,
+    dataset_id: str,
+    vacancy_service: VacancyService | None = None,
+) -> tuple[str, str]:
     """Вернуть ``(имя_файла, текст_csv)`` сырых данных датасета."""
 
-    if dataset_id == "trudvsem-opendata":
-        return "trudvsem-vacancies.csv", with_bom(vacancies_csv_text())
+    if dataset_id.startswith("trudvsem") and vacancy_service is not None:
+        return "trudvsem-vacancies.csv", with_bom(vacancy_service.csv_text())
 
     objects = _objects_for_dataset(store, dataset_id)
     if objects:

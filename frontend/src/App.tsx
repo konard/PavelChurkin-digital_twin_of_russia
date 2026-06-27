@@ -24,6 +24,7 @@ import {
   createApiKey,
   downloadDatasetCsv,
   exportRunUrl,
+  fetchConfig,
   fetchDatasets,
   fetchDemoRun,
   fetchObjects,
@@ -37,6 +38,7 @@ import {
 } from "./api";
 import type {
   ApiKeyResponse,
+  AppConfig,
   DatasetPassport,
   ProfessionCount,
   RoleInfo,
@@ -94,16 +96,23 @@ function objectPopupHtml(item: TwinObject): string {
 
 type Basemap = "osm" | "yandex";
 
-const YANDEX_API_KEY = import.meta.env.VITE_YANDEX_API_KEY ?? "";
+// Ключ Яндекса из сборки (Vite запекает VITE_* при build). Issue #21: это
+// ненадёжно — ключ, заданный после сборки, в бандл не попадает, и кнопка
+// остаётся неактивной. Поэтому основной источник ключа — рантайм-эндпоинт
+// /api/v1/config; build-time значение остаётся лишь запасным.
+const BUILD_TIME_YANDEX_KEY = import.meta.env.VITE_YANDEX_API_KEY ?? "";
 
-function basemapSource(basemap: Basemap): SourceSpecification {
-  if (basemap === "yandex" && YANDEX_API_KEY) {
+function basemapSource(
+  basemap: Basemap,
+  yandexKey: string,
+): SourceSpecification {
+  if (basemap === "yandex" && yandexKey) {
     // Подключение Яндекс Карт включается только при наличии API-ключа.
     // Лимиты бесплатного плана соблюдаются на стороне геокодера (см. docs).
     return {
       type: "raster",
       tiles: [
-        `https://tiles.api-maps.yandex.ru/v1/tiles/?x={x}&y={y}&z={z}&l=map&lang=ru_RU&apikey=${YANDEX_API_KEY}`,
+        `https://tiles.api-maps.yandex.ru/v1/tiles/?x={x}&y={y}&z={z}&l=map&lang=ru_RU&apikey=${yandexKey}`,
       ],
       tileSize: 256,
       attribution: "© Яндекс Карты",
@@ -221,7 +230,11 @@ function vacancyListDocument(
  * Окно открывается синхронно по клику (иначе сработает блокировщик попапов),
  * показывает заглушку «Загрузка…», затем заполняется таблицей со всеми полями.
  */
-async function openVacancyList(profession: string): Promise<void> {
+async function openVacancyList(
+  profession: string,
+  session: Session,
+  count?: number,
+): Promise<void> {
   // Без флага "noopener": он заставляет window.open вернуть null, и записать
   // таблицу в новую вкладку было бы нельзя. Ссылку на opener обнуляем вручную.
   const win = window.open("", "_blank");
@@ -235,7 +248,9 @@ async function openVacancyList(profession: string): Promise<void> {
   }
   win.document.write(vacancyListDocument(profession, [], true));
   win.document.close();
-  const page = await fetchVacancies(profession, 0, 50000);
+  // Список ограничен подгруженным числом вакансий (issue #21): гостю бэкенд
+  // отдаёт одну страницу, авторизованным ролям — указанное количество.
+  const page = await fetchVacancies(profession, count, session);
   if (win.closed) {
     return;
   }
@@ -280,7 +295,10 @@ function objectFeatureCollection(
   };
 }
 
-function buildMapStyle(basemap: Basemap): StyleSpecification {
+function buildMapStyle(
+  basemap: Basemap,
+  yandexKey: string,
+): StyleSpecification {
   const vacancyLayers: StyleSpecification["layers"] = [
     {
       id: "vac-heat",
@@ -376,7 +394,7 @@ function buildMapStyle(basemap: Basemap): StyleSpecification {
     // сетях с блокировками внешних CDN.
     glyphs: "/fonts/{fontstack}/{range}.pbf",
     sources: {
-      basemap: basemapSource(basemap),
+      basemap: basemapSource(basemap, yandexKey),
       regions: { type: "geojson", data: "/regions-russia.geojson" },
       objects: {
         type: "geojson",
@@ -441,11 +459,13 @@ function MapPanel({
   vacancies,
   showVacancies,
   basemap,
+  yandexKey,
 }: {
   objects: TwinObject[];
   vacancies: VacancyFeatureCollection;
   showVacancies: boolean;
   basemap: Basemap;
+  yandexKey: string;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -457,8 +477,8 @@ function MapPanel({
 
   // Последние данные держим в ref, чтобы обработчик `load` и эффекты
   // обновления источников всегда видели актуальные значения, а карта при этом
-  // не пересоздавалась на каждое изменение (иначе инкрементальная догрузка
-  // вакансий каждые 5 секунд приводила бы к полному перестроению карты).
+  // не пересоздавалась на каждое обновление слоя вакансий (иначе перезагрузка
+  // слоя приводила бы к полному перестроению карты).
   const objectsRef = useRef(objects);
   const vacanciesRef = useRef(vacancies);
   const showVacanciesRef = useRef(showVacancies);
@@ -474,7 +494,7 @@ function MapPanel({
     readyRef.current = false;
     const map = new maplibregl.Map({
       container: ref.current,
-      style: buildMapStyle(basemap),
+      style: buildMapStyle(basemap, yandexKey),
       center: cameraRef.current.center,
       zoom: cameraRef.current.zoom,
       interactive: true,
@@ -609,7 +629,7 @@ function MapPanel({
       mapRef.current = null;
       map.remove();
     };
-  }, [basemap]);
+  }, [basemap, yandexKey]);
 
   // Обновление источников без пересоздания карты.
   useEffect(() => {
@@ -700,7 +720,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         <div className="brand login-brand">DTR</div>
         <h1>Цифровой двойник России</h1>
         <p className="login-sub">
-          Открытый контур v0.1.4. Войдите как оператор платформы или другая роль
+          Открытый контур v0.1.5. Войдите как оператор платформы или другая роль
           — либо продолжите как гость без пароля.
         </p>
 
@@ -834,18 +854,34 @@ function RunResultView({ run }: { run: ScenarioRun }) {
   );
 }
 
-// Размер страницы и период инкрементальной догрузки вакансий (issue #17):
-// слой наполняется порциями по 5000 записей каждые 5 секунд, пока не наберётся
-// весь объём выгрузки.
-const VACANCY_PAGE_SIZE = 5000;
-const VACANCY_POLL_MS = 5000;
+// Сколько вакансий подгружать по умолчанию (одна страница открытого API).
+const DEFAULT_LOAD_COUNT = 100;
+// Предохранитель на массовую подгрузку авторизованными ролями (issue #21).
+const MAX_LOAD_COUNT = 5000;
 
 // Сколько профессий показывать в сайдбаре до раскрытия полного списка (#19).
 const PROFESSION_PREVIEW = 10;
 
-function MapView({ objects }: { objects: TwinObject[] }) {
+function clampCount(value: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_LOAD_COUNT;
+  }
+  return Math.max(1, Math.min(Math.round(value), max));
+}
+
+function MapView({
+  objects,
+  session,
+}: {
+  objects: TwinObject[];
+  session: Session;
+}) {
+  // Гость получает один запрос к API (issue #21); остальным ролям доступна
+  // подгрузка указанного числа вакансий.
+  const isGuest = session.role === "guest";
   const [showVacancies, setShowVacancies] = useState(true);
   const [basemap, setBasemap] = useState<Basemap>("osm");
+  const [config, setConfig] = useState<AppConfig | null>(null);
   const [vacancies, setVacancies] =
     useState<VacancyFeatureCollection>(EMPTY_VACANCY_FC);
   const [professions, setProfessions] = useState<ProfessionCount[]>([]);
@@ -853,55 +889,61 @@ function MapView({ objects }: { objects: TwinObject[] }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showAllProfessions, setShowAllProfessions] = useState(false);
+  // Введённое в поле число и фактически применённое (по которому идёт запрос).
+  const [countInput, setCountInput] = useState(DEFAULT_LOAD_COUNT);
+  const [requestedCount, setRequestedCount] = useState(DEFAULT_LOAD_COUNT);
+  const [loaded, setLoaded] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  const maxLoad = meta?.max_limit ?? MAX_LOAD_COUNT;
 
   useEffect(() => {
-    // Грузим полный список профессий (до 100 — максимум эндпоинта), чтобы его
-    // можно было раскрыть целиком. Раньше показывались только первые 12, и при
-    // 5000+ вакансиях остальные специальности были недоступны (issue #19).
-    void fetchTopProfessions(100).then(setProfessions);
     void fetchVacanciesMeta().then(setMeta);
+    // Ключ Яндекса берётся из рантайм-конфигурации, поэтому работает без
+    // пересборки фронтенда (issue #21).
+    void fetchConfig().then(setConfig);
   }, []);
 
-  // Инкрементальная догрузка: грузим вакансии страницами по 5000 и добавляем
-  // к уже показанным каждые 5 секунд, пока не наберём весь объём выгрузки.
-  // Раньше запрашивалась одна страница и на карту попадало максимум столько
-  // вакансий, сколько было в демо-файле (107) — issue #17.
+  // Список профессий зависит от того, сколько вакансий подгружено: для гостя —
+  // одна страница, для остальных — выбранное число.
+  useEffect(() => {
+    const count = isGuest ? undefined : requestedCount;
+    void fetchTopProfessions(100, count, session).then(setProfessions);
+  }, [isGuest, requestedCount, session]);
+
+  // Одна загрузка слоя на каждое изменение фильтра/числа. Гостю count не
+  // передаётся — бэкенд сам ограничивает выдачу одной страницей (issue #21).
   useEffect(() => {
     if (!showVacancies) {
       setVacancies(EMPTY_VACANCY_FC);
+      setLoaded(0);
       return;
     }
     const filter = selected ?? (search.trim() || undefined);
+    const count = isGuest ? undefined : requestedCount;
     let cancelled = false;
-    let offset = 0;
-    let features: VacancyFeatureCollection["features"] = [];
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
+    setLoading(true);
     setVacancies(EMPTY_VACANCY_FC);
 
-    const loadNextPage = async () => {
-      const page = await fetchVacancies(filter, offset, VACANCY_PAGE_SIZE);
+    void fetchVacancies(filter, count, session).then((collection) => {
       if (cancelled) {
         return;
       }
-      features = features.concat(page.features);
-      offset += page.returned;
-      setVacancies({ type: "FeatureCollection", features });
-      if (page.returned > 0 && offset < page.total) {
-        timer = setTimeout(() => void loadNextPage(), VACANCY_POLL_MS);
-      }
-    };
+      setVacancies({
+        type: "FeatureCollection",
+        features: collection.features,
+      });
+      setLoaded(collection.loaded);
+      setLoading(false);
+    });
 
-    void loadNextPage();
     return () => {
       cancelled = true;
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
     };
-  }, [showVacancies, selected, search]);
+  }, [showVacancies, selected, search, isGuest, requestedCount, session]);
 
-  const yandexAvailable = YANDEX_API_KEY.length > 0;
+  const yandexKey = config?.yandex_api_key || BUILD_TIME_YANDEX_KEY;
+  const yandexAvailable = yandexKey.length > 0;
   const total = meta?.total ?? 0;
   const shown = vacancies.features.length;
   const visibleProfessions = showAllProfessions
@@ -918,6 +960,11 @@ function MapView({ objects }: { objects: TwinObject[] }) {
     setSelected(null);
   };
 
+  const submitCount = (event: React.FormEvent) => {
+    event.preventDefault();
+    setRequestedCount(clampCount(countInput, maxLoad));
+  };
+
   return (
     <section className="panel">
       <div className="section-title">
@@ -931,6 +978,7 @@ function MapView({ objects }: { objects: TwinObject[] }) {
             vacancies={vacancies}
             showVacancies={showVacancies}
             basemap={basemap}
+            yandexKey={yandexKey}
           />
           <p className="panel-note">
             Подсвечены все субъекты РФ. Кликните по региону, объекту или
@@ -973,7 +1021,7 @@ function MapView({ objects }: { objects: TwinObject[] }) {
                   title={
                     yandexAvailable
                       ? "Яндекс Карты"
-                      : "Добавьте VITE_YANDEX_API_KEY, чтобы включить Яндекс Карты"
+                      : "Задайте YANDEX_API_KEY на бэкенде, чтобы включить Яндекс Карты"
                   }
                 >
                   Яндекс
@@ -983,8 +1031,10 @@ function MapView({ objects }: { objects: TwinObject[] }) {
             {!yandexAvailable && (
               <p className="sidebar-hint">
                 Подложка Яндекс Карт включается переменной окружения{" "}
-                <code>VITE_YANDEX_API_KEY</code>. По умолчанию используется OSM,
-                а геокодер — бесплатный Nominatim (≤1 запрос/с).
+                <code>YANDEX_API_KEY</code> на бэкенде — ключ отдаётся через{" "}
+                <code>/api/v1/config</code> и применяется без пересборки
+                фронтенда (issue #21). По умолчанию используется OSM, а геокодер
+                — бесплатный Nominatim (≤1 запрос/с).
               </p>
             )}
           </div>
@@ -1000,9 +1050,41 @@ function MapView({ objects }: { objects: TwinObject[] }) {
                   aria-label="Поиск профессии"
                 />
               </form>
+              {isGuest ? (
+                <p className="sidebar-hint">
+                  Гостевой режим: загружается одна страница открытого API
+                  «Работа России» ({meta?.guest_limit ?? DEFAULT_LOAD_COUNT}{" "}
+                  вакансий). Войдите под ролью, чтобы подгрузить больше (issue
+                  #21).
+                </p>
+              ) : (
+                <form className="vacancy-load" onSubmit={submitCount}>
+                  <label htmlFor="vacancy-load-count">
+                    Загрузить вакансий (до {maxLoad})
+                  </label>
+                  <div className="vacancy-load-row">
+                    <input
+                      id="vacancy-load-count"
+                      type="number"
+                      min={1}
+                      max={maxLoad}
+                      step={100}
+                      value={countInput}
+                      onChange={(event) =>
+                        setCountInput(Number(event.target.value))
+                      }
+                      aria-label="Число вакансий для загрузки"
+                    />
+                    <button type="submit" disabled={loading}>
+                      {loading ? "Загрузка…" : "Загрузить"}
+                    </button>
+                  </div>
+                </form>
+              )}
               <div className="vacancy-count">
                 Показано <strong>{shown}</strong>
                 {total ? ` из ${total}` : ""} вакансий
+                {loaded ? ` · подгружено ${loaded}` : ""}
                 {selected ? ` · «${selected}»` : ""}
                 {(selected || search) && (
                   <button
@@ -1046,7 +1128,13 @@ function MapView({ objects }: { objects: TwinObject[] }) {
                       <button
                         type="button"
                         className="profession-all"
-                        onClick={() => void openVacancyList(item.profession)}
+                        onClick={() =>
+                          void openVacancyList(
+                            item.profession,
+                            session,
+                            isGuest ? undefined : requestedCount,
+                          )
+                        }
                         title="Открыть полный список вакансий этого специалиста в новой вкладке"
                       >
                         все
@@ -1481,7 +1569,7 @@ function Workspace({
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h1>Цифровой двойник России v0.1.4</h1>
+            <h1>Цифровой двойник России v0.1.5</h1>
             <p>
               Открытый контур: каталоги, сценарии, отчёты и аудит на
               демо-данных.
@@ -1502,7 +1590,7 @@ function Workspace({
           </div>
         </header>
 
-        {view === "map" && <MapView objects={objects} />}
+        {view === "map" && <MapView objects={objects} session={session} />}
         {view === "scenarios" && (
           <ScenariosView
             session={session}
