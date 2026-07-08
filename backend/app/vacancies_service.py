@@ -26,6 +26,7 @@ from backend.etl.vacancies import (
     TRUDVSEM_API_URL,
     TRUDVSEM_CSV_URL,
     Vacancy,
+    fetch_api_page,
     fetch_api_vacancies,
     load_sample_vacancies,
 )
@@ -41,6 +42,9 @@ MAX_LIMIT = 5000
 # Инъектируемый загрузчик: ``count -> (вакансии, всего)``. По умолчанию —
 # живой API; в тестах подменяется офлайн-функцией.
 VacancyFetcher = Callable[[int], tuple[list[Vacancy], int]]
+# Постраничный загрузчик: ``(offset, limit) -> (вакансии, всего)``. Нужен для
+# прогрессивной подгрузки с отображением счётчика в реальном времени (issue #23).
+PageFetcher = Callable[[int, int], tuple[list[Vacancy], int]]
 
 
 def _money(amount: float) -> str:
@@ -70,10 +74,16 @@ class VacancyService:
         self,
         fetcher: VacancyFetcher | None = None,
         *,
+        page_fetcher: PageFetcher | None = None,
         sample_path: Path = DEMO_VACANCIES_SAMPLE,
     ) -> None:
         # По умолчанию — живой API «Работа России».
         self._fetcher: VacancyFetcher = fetcher or (lambda count: fetch_api_vacancies(count))
+        # Постраничный загрузчик по умолчанию тоже бьёт в живой API одной
+        # страницей; в тестах/офлайне подменяется срезом снимка.
+        self._page_fetcher: PageFetcher = page_fetcher or (
+            lambda offset, limit: fetch_api_page(offset, limit)
+        )
         self._sample_path = sample_path
         self._sample_cache: tuple[list[Vacancy], int] | None = None
         self._total_cache: int | None = None
@@ -102,6 +112,52 @@ class VacancyService:
         if total:
             self._total_cache = total
         return vacancies, total
+
+    def _load_page(self, offset: int) -> tuple[list[Vacancy], int]:
+        """Подгрузить одну страницу (100 вакансий) с фолбэком на офлайн-срез.
+
+        ``offset`` — номер страницы (0, 1, 2…). При недоступности сети берётся
+        соответствующий срез снимка, чтобы прогрессивная загрузка работала и
+        офлайн (issue #23).
+        """
+
+        page = max(0, int(offset))
+        vacancies: list[Vacancy] = []
+        total = 0
+        try:
+            vacancies, total = self._page_fetcher(page, API_PAGE_LIMIT)
+        except Exception:  # noqa: BLE001 — сеть недоступна → офлайн-срез
+            vacancies, total = [], 0
+        if not vacancies:
+            sample_vacancies, sample_total = self._sample()
+            start = page * API_PAGE_LIMIT
+            vacancies = list(sample_vacancies[start : start + API_PAGE_LIMIT])
+            total = total or sample_total
+        if total:
+            self._total_cache = total
+        return vacancies, total
+
+    @staticmethod
+    def _normalize(vacancies: list[Vacancy]) -> list[Vacancy]:
+        """Отбросить непригодные вакансии и дубли (issue #23).
+
+        * без координат — не попадают на карту («Вакансии с координатами не
+          найдены»), поэтому убираются;
+        * без зарплаты — бесполезны для фильтра по зарплате, тоже убираются;
+        * повторы по ``id`` (постраничная выдача источника изредка дублирует
+          записи) схлопываются, чтобы на карте не было задвоенных точек.
+        """
+
+        seen: set[str] = set()
+        cleaned: list[Vacancy] = []
+        for vacancy in vacancies:
+            if not vacancy.has_point or not vacancy.has_salary:
+                continue
+            if vacancy.id in seen:
+                continue
+            seen.add(vacancy.id)
+            cleaned.append(vacancy)
+        return cleaned
 
     def source_total(self) -> int:
         """Полное число вакансий в источнике (issue #21: показать пользователю)."""
@@ -135,6 +191,9 @@ class VacancyService:
                 "employer": vacancy.employer,
                 "region": vacancy.region,
                 "salary": _format_salary(vacancy),
+                # Числовое значение зарплаты для клиентского фильтра по порогу
+                # (issue #23): фронтенд прячет точки ниже выбранной зарплаты.
+                "salary_value": vacancy.salary_value,
                 "url": vacancy.url,
             },
         }
@@ -153,15 +212,49 @@ class VacancyService:
         """
 
         vacancies, total = self._load(count)
-        filtered = self._filter(vacancies, profession)
-        points = [v for v in filtered if v.has_point]
-        features = [self._feature(vacancy) for vacancy in points]
+        cleaned = self._normalize(vacancies)
+        filtered = self._filter(cleaned, profession)
+        features = [self._feature(vacancy) for vacancy in filtered]
         return {
             "type": "FeatureCollection",
             "features": features,
             "total": total,
-            "loaded": len(vacancies),
+            "loaded": len(cleaned),
             "returned": len(features),
+        }
+
+    def geojson_page(
+        self,
+        *,
+        offset: int = 0,
+        profession: str | None = None,
+    ) -> dict:
+        """Одна страница слоя вакансий как GeoJSON (issue #23).
+
+        Прогрессивная загрузка на фронтенде листает страницы по одной и
+        показывает счётчик подгруженных вакансий в реальном времени, а также
+        кэширует накопленный результат, чтобы кнопка «все» и фильтры не
+        опрашивали API повторно. ``page`` — номер запрошенной страницы,
+        ``page_size`` — размер страницы источника, ``exhausted`` — исчерпан ли
+        источник (страница покрыла последние записи ``meta.total``).
+        """
+
+        page = max(0, int(offset))
+        vacancies, total = self._load_page(page)
+        cleaned = self._normalize(vacancies)
+        filtered = self._filter(cleaned, profession)
+        features = [self._feature(vacancy) for vacancy in filtered]
+        consumed = (page + 1) * API_PAGE_LIMIT
+        exhausted = not vacancies or (bool(total) and consumed >= total)
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+            "total": total,
+            "loaded": len(cleaned),
+            "returned": len(features),
+            "page": page,
+            "page_size": API_PAGE_LIMIT,
+            "exhausted": exhausted,
         }
 
     def top_professions(self, *, limit: int = 12, count: int = DEFAULT_LIMIT) -> list[dict]:
@@ -242,4 +335,10 @@ def offline_vacancy_service(sample_path: Path = DEMO_VACANCIES_SAMPLE) -> Vacanc
     def fetcher(count: int) -> tuple[list[Vacancy], int]:
         return sample_vacancies[:count], sample_total
 
-    return VacancyService(fetcher=fetcher, sample_path=sample_path)
+    def page_fetcher(offset: int, limit: int) -> tuple[list[Vacancy], int]:
+        start = offset * limit
+        return sample_vacancies[start : start + limit], sample_total
+
+    return VacancyService(
+        fetcher=fetcher, page_fetcher=page_fetcher, sample_path=sample_path
+    )

@@ -14,6 +14,7 @@ from backend.app.vacancies_service import (
 )
 from backend.etl.vacancies import (
     REFRESH_INTERVAL_HOURS,
+    Vacancy,
     fetch_api_page,
     fetch_api_vacancies,
     iter_vacancies,
@@ -197,6 +198,76 @@ def test_service_source_total_reports_live_number() -> None:
     # Даже при пустой странице total читается из meta источника (фолбэк-срез
     # докинет вакансии, но число всех вакансий — живое).
     assert service.source_total() == 548340
+
+
+def test_service_drops_vacancies_without_salary_or_coordinates() -> None:
+    # issue #23 (п. 9): вакансии без зарплаты и без координат игнорируются.
+    pool = [
+        Vacancy("ok", "Тест", "ООО", "Москва", 55.0, 37.0, 100000, 150000),
+        Vacancy("no-salary", "Тест", "ООО", "Москва", 55.1, 37.1, None, None),
+        Vacancy("no-point", "Тест", "ООО", "Москва", None, None, 90000, None),
+    ]
+
+    def fetcher(count: int) -> tuple[list, int]:
+        return pool[:count], 500
+
+    collection = VacancyService(fetcher=fetcher).geojson(count=10)
+    ids = {feature["properties"]["id"] for feature in collection["features"]}
+    assert ids == {"ok"}
+    assert collection["loaded"] == 1
+
+
+def test_service_deduplicates_repeated_vacancies() -> None:
+    # issue #23 (п. 6): повторы по id схлопываются, чтобы точки не задваивались.
+    base = Vacancy("dup", "Тест", "ООО", "Москва", 55.0, 37.0, 100000, 150000)
+    pool = [base, base, Vacancy("uniq", "Тест", "ООО", "Казань", 55.8, 49.1, 90000, None)]
+
+    def fetcher(count: int) -> tuple[list, int]:
+        return pool[:count], 500
+
+    collection = VacancyService(fetcher=fetcher).geojson(count=10)
+    ids = [feature["properties"]["id"] for feature in collection["features"]]
+    assert sorted(ids) == ["dup", "uniq"]
+
+
+def test_service_feature_exposes_numeric_salary_value() -> None:
+    # issue #23 (п. 7): числовое значение зарплаты нужно клиентскому фильтру.
+    pool = [Vacancy("v", "Тест", "ООО", "Москва", 55.0, 37.0, 123000, 200000)]
+
+    def fetcher(count: int) -> tuple[list, int]:
+        return pool[:count], 500
+
+    collection = VacancyService(fetcher=fetcher).geojson(count=10)
+    assert collection["features"][0]["properties"]["salary_value"] == 123000
+
+
+def test_service_geojson_page_returns_single_page_with_pagination_meta() -> None:
+    # issue #23 (пп. 2/5): постраничная выдача для прогрессивной загрузки.
+    service = offline_vacancy_service()
+    page = service.geojson_page(offset=0)
+    assert page["type"] == "FeatureCollection"
+    assert page["page"] == 0
+    assert page["page_size"] == GUEST_LIMIT
+    assert page["loaded"] <= GUEST_LIMIT
+    assert isinstance(page["exhausted"], bool)
+
+
+def test_page_marks_exhausted_beyond_last_page() -> None:
+    # Страница за пределами источника пуста и помечается исчерпанной (issue #23).
+    service = offline_vacancy_service()
+    page = service.geojson_page(offset=99)
+    assert page["features"] == []
+    assert page["exhausted"] is True
+
+
+def test_guest_page_offset_capped_to_first_page() -> None:
+    # issue #23: гость по-прежнему ограничен первой страницей даже с offset.
+    body = client.get(
+        "/api/v1/vacancies",
+        params={"offset": 5},
+        headers={"X-Role": "guest"},
+    ).json()
+    assert body["page"] == 0
 
 
 def test_offline_service_filters_by_profession() -> None:

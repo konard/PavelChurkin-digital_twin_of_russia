@@ -34,7 +34,7 @@ from backend.app.vacancies_service import (
     VacancyService,
 )
 
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 
 app = FastAPI(
     title="API Цифрового двойника России",
@@ -196,6 +196,7 @@ def download_dataset_csv(
 def get_vacancies(
     profession: Annotated[str | None, Query()] = None,
     count: Annotated[int | None, Query(ge=1, le=MAX_LIMIT)] = None,
+    offset: Annotated[int | None, Query(ge=0)] = None,
     x_role: Annotated[str | None, Header(alias="X-Role")] = None,
 ) -> dict:
     """Слой вакансий «Работа России» из открытого API как GeoJSON.
@@ -203,7 +204,17 @@ def get_vacancies(
     Issue #21: гостю отдаётся одна страница API (100 вакансий) — один запрос;
     авторизованные роли могут указать ``count`` и подгрузить нужное число
     вакансий (постранично, с паузой 0.21 с между запросами к источнику).
+
+    Issue #23: если задан ``offset`` (номер страницы), отдаётся ровно одна
+    страница. Фронтенд листает страницы по одной, показывает счётчик
+    подгруженных вакансий в реальном времени и кэширует накопленный результат,
+    чтобы фильтры и кнопка «все» не опрашивали API повторно. Гость по-прежнему
+    ограничен первой страницей.
     """
+
+    if offset is not None:
+        page = 0 if _role(x_role) == "guest" else offset
+        return vacancy_service.geojson_page(offset=page, profession=profession)
 
     requested = count if count is not None else DEFAULT_LIMIT
     # Гость ограничен одной страницей API (issue #21: «один запрос апи для гостя»).
