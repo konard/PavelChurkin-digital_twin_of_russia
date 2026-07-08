@@ -26,7 +26,7 @@ from time import monotonic, sleep
 # Контактная почта оператора платформы — подставляется в User-Agent запросов,
 # как просили в issue #12.
 CONTACT_EMAIL = "paxanch94@inbox.ru"
-USER_AGENT = f"DigitalTwinOfRussia/0.1.5 (+{CONTACT_EMAIL})"
+USER_AGENT = f"DigitalTwinOfRussia/0.1.6 (+{CONTACT_EMAIL})"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
 Fetcher = Callable[[str, dict[str, str]], str]
