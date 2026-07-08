@@ -5,6 +5,7 @@ import {
   Briefcase,
   Download,
   FileDown,
+  Home,
   KeyRound,
   Layers,
   LogOut,
@@ -13,6 +14,7 @@ import {
   Search,
   ShieldCheck,
   UserRound,
+  X,
 } from "lucide-react";
 import maplibregl, {
   type SourceSpecification,
@@ -30,9 +32,8 @@ import {
   fetchObjects,
   fetchRoles,
   fetchScenarios,
-  fetchTopProfessions,
-  fetchVacancies,
   fetchVacanciesMeta,
+  fetchVacanciesPage,
   login,
   runScenario,
 } from "./api";
@@ -149,120 +150,138 @@ function vacancyPopupHtml(properties: Record<string, unknown>): string {
     </div>`;
 }
 
-function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-// HTML отдельного окна со списком всех вакансий выбранного специалиста.
-// Issue #19: рядом с каждым специалистом нужна кнопка «все», открывающая
-// в новой вкладке полную таблицу его вакансий со всеми полями (id,
-// работодатель, регион, зарплата, координаты, ссылка).
-function vacancyListDocument(
-  profession: string,
-  features: VacancyFeatureCollection["features"],
-  loading: boolean,
-): string {
-  const title = `Вакансии · ${escapeHtml(profession)}`;
-  const rows = features
-    .map((feature, index) => {
-      const props = feature.properties;
-      const coordinates = (feature.geometry?.coordinates ?? []) as number[];
-      const [lon, lat] = coordinates;
-      const link = props.url
-        ? `<a href="${escapeHtml(props.url)}" target="_blank" rel="noreferrer">открыть</a>`
-        : "—";
-      return `<tr>
-        <td>${index + 1}</td>
-        <td>${escapeHtml(props.id)}</td>
-        <td>${escapeHtml(props.profession)}</td>
-        <td>${escapeHtml(props.employer) || "—"}</td>
-        <td>${escapeHtml(props.region) || "—"}</td>
-        <td>${escapeHtml(props.salary) || "—"}</td>
-        <td>${lat ?? "—"}, ${lon ?? "—"}</td>
-        <td>${link}</td>
-      </tr>`;
-    })
-    .join("");
-  const body = loading
-    ? `<p class="status">Загрузка вакансий…</p>`
-    : features.length === 0
-      ? `<p class="status">Вакансии с координатами не найдены.</p>`
-      : `<p class="status">Всего вакансий: <strong>${features.length}</strong></p>
-         <table>
-           <thead>
-             <tr>
-               <th>№</th><th>ID</th><th>Профессия</th><th>Работодатель</th>
-               <th>Регион</th><th>Зарплата</th><th>Координаты</th><th>Ссылка</th>
-             </tr>
-           </thead>
-           <tbody>${rows}</tbody>
-         </table>`;
-  return `<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${title}</title>
-<style>
-  body { font-family: system-ui, "Segoe UI", Roboto, sans-serif; margin: 24px; color: #1e293b; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .status { color: #475569; font-size: 14px; }
-  table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 13px; }
-  th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; vertical-align: top; }
-  th { background: #f1f5f9; position: sticky; top: 0; }
-  tr:nth-child(even) td { background: #f8fafc; }
-  a { color: #1d4ed8; }
-</style>
-</head>
-<body>
-  <h1>Вакансии: ${escapeHtml(profession)}</h1>
-  ${body}
-</body>
-</html>`;
-}
-
-/**
- * Открыть в новой вкладке полный список вакансий специалиста (issue #19).
- * Окно открывается синхронно по клику (иначе сработает блокировщик попапов),
- * показывает заглушку «Загрузка…», затем заполняется таблицей со всеми полями.
- */
-async function openVacancyList(
-  profession: string,
-  session: Session,
-  count?: number,
-): Promise<void> {
-  // Без флага "noopener": он заставляет window.open вернуть null, и записать
-  // таблицу в новую вкладку было бы нельзя. Ссылку на opener обнуляем вручную.
-  const win = window.open("", "_blank");
-  if (!win) {
-    return;
-  }
-  try {
-    win.opener = null;
-  } catch {
-    // некоторые браузеры запрещают запись win.opener — это не критично
-  }
-  win.document.write(vacancyListDocument(profession, [], true));
-  win.document.close();
-  // Список ограничен подгруженным числом вакансий (issue #21): гостю бэкенд
-  // отдаёт одну страницу, авторизованным ролям — указанное количество.
-  const page = await fetchVacancies(profession, count, session);
-  if (win.closed) {
-    return;
-  }
-  win.document.open();
-  win.document.write(vacancyListDocument(profession, page.features, false));
-  win.document.close();
-}
-
 const EMPTY_VACANCY_FC: VacancyFeatureCollection = {
   type: "FeatureCollection",
   features: [],
 };
+
+// Координаты точки вакансии в виде "широта, долгота" (геометрия хранит
+// [lon, lat]). ``null`` при отсутствии координат — таких вакансий в выдаче быть
+// не должно (issue #23, п. 9), но проверка защищает от битых данных.
+function featureCoords(
+  feature: VacancyFeatureCollection["features"][number],
+): [number, number] | null {
+  const coordinates = (feature.geometry?.coordinates ?? []) as number[];
+  const [lon, lat] = coordinates;
+  if (typeof lon !== "number" || typeof lat !== "number") {
+    return null;
+  }
+  return [lon, lat];
+}
+
+/**
+ * Модальное окно со списком всех вакансий выбранного специалиста (issue #23).
+ *
+ * Список строится из уже подгруженного кэша — повторного запроса к API нет
+ * (issue #23, пп. 1/2). Клик по координатам переносит на карту и приближает к
+ * точке максимально (issue #23, п. 3). Показывается дата последней загрузки.
+ */
+function VacancyListModal({
+  profession,
+  features,
+  loadedAt,
+  onClose,
+  onFocusPoint,
+}: {
+  profession: string;
+  features: VacancyFeatureCollection["features"];
+  loadedAt: Date | null;
+  onClose: () => void;
+  onFocusPoint: (point: [number, number]) => void;
+}) {
+  return (
+    <div
+      className="vacancy-modal-backdrop"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="vacancy-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Вакансии: ${profession}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="vacancy-modal-head">
+          <div>
+            <h3>Вакансии: {profession}</h3>
+            <p className="vacancy-modal-meta">
+              Всего вакансий: <strong>{features.length}</strong>
+              {loadedAt
+                ? ` · данные загружены ${loadedAt.toLocaleString("ru-RU")}`
+                : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="vacancy-modal-close"
+            onClick={onClose}
+            aria-label="Закрыть список"
+          >
+            <X size={18} />
+          </button>
+        </header>
+        {features.length === 0 ? (
+          <p className="vacancy-modal-empty">
+            Вакансии с координатами не найдены.
+          </p>
+        ) : (
+          <div className="vacancy-modal-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>№</th>
+                  <th>Работодатель</th>
+                  <th>Регион</th>
+                  <th>Зарплата</th>
+                  <th>Координаты</th>
+                  <th>Ссылка</th>
+                </tr>
+              </thead>
+              <tbody>
+                {features.map((feature, index) => {
+                  const props = feature.properties;
+                  const point = featureCoords(feature);
+                  return (
+                    <tr key={props.id}>
+                      <td>{index + 1}</td>
+                      <td>{props.employer || "—"}</td>
+                      <td>{props.region || "—"}</td>
+                      <td>{props.salary || "—"}</td>
+                      <td>
+                        {point ? (
+                          <button
+                            type="button"
+                            className="vacancy-coord-link"
+                            title="Показать на карте и приблизить к точке"
+                            onClick={() => onFocusPoint(point)}
+                          >
+                            {point[1].toFixed(4)}, {point[0].toFixed(4)}
+                          </button>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td>
+                        {props.url ? (
+                          <a href={props.url} target="_blank" rel="noreferrer">
+                            открыть
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // Слои, у вакансий/объектов которых приоритет над подложкой регионов: клик по
 // ним не должен «проваливаться» в попап региона (issue #17).
@@ -454,25 +473,35 @@ function buildMapStyle(
   };
 }
 
+// Обзор всей России — исходное положение камеры и цель кнопки «домой»
+// (issue #23, п. 4).
+const HOME_CENTER: [number, number] = [94, 64];
+const HOME_ZOOM = 2.4;
+// Максимальное приближение при переходе к конкретной вакансии из списка
+// (issue #23, п. 3).
+const FOCUS_ZOOM = 16;
+
 function MapPanel({
   objects,
   vacancies,
   showVacancies,
   basemap,
   yandexKey,
+  focusPoint,
 }: {
   objects: TwinObject[];
   vacancies: VacancyFeatureCollection;
   showVacancies: boolean;
   basemap: Basemap;
   yandexKey: string;
+  focusPoint: { point: [number, number]; nonce: number } | null;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const readyRef = useRef(false);
   const cameraRef = useRef<{ center: [number, number]; zoom: number }>({
-    center: [94, 64],
-    zoom: 2.4,
+    center: HOME_CENTER,
+    zoom: HOME_ZOOM,
   });
 
   // Последние данные держим в ref, чтобы обработчик `load` и эффекты
@@ -668,8 +697,42 @@ function MapPanel({
     }
   }, [showVacancies]);
 
+  // Переход к конкретной вакансии из списка: карта приближается к точке
+  // максимально (issue #23, п. 3). ``nonce`` меняется на каждый клик, чтобы
+  // повторный выбор той же точки тоже срабатывал.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusPoint) {
+      return;
+    }
+    map.flyTo({ center: focusPoint.point, zoom: FOCUS_ZOOM, essential: true });
+  }, [focusPoint]);
+
+  const goHome = () => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    map.easeTo({ center: HOME_CENTER, zoom: HOME_ZOOM, essential: true });
+  };
+
   return (
-    <div ref={ref} className="map-canvas" aria-label="Карта регионов России" />
+    <div className="map-canvas-wrap">
+      <div
+        ref={ref}
+        className="map-canvas"
+        aria-label="Карта регионов России"
+      />
+      <button
+        type="button"
+        className="map-home-button"
+        onClick={goHome}
+        title="Показать всю Россию"
+        aria-label="Показать всю Россию"
+      >
+        <Home size={16} />
+      </button>
+    </div>
   );
 }
 
@@ -720,7 +783,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         <div className="brand login-brand">DTR</div>
         <h1>Цифровой двойник России</h1>
         <p className="login-sub">
-          Открытый контур v0.1.5. Войдите как оператор платформы или другая роль
+          Открытый контур v0.1.6. Войдите как оператор платформы или другая роль
           — либо продолжите как гость без пароля.
         </p>
 
@@ -854,9 +917,10 @@ function RunResultView({ run }: { run: ScenarioRun }) {
   );
 }
 
-// Сколько вакансий подгружать по умолчанию (одна страница открытого API).
-const DEFAULT_LOAD_COUNT = 100;
-// Предохранитель на массовую подгрузку авторизованными ролями (issue #21).
+// Размер страницы открытого API — по столько вакансий подгружаем за один
+// запрос при прогрессивной загрузке (issue #23).
+const PAGE_SIZE = 100;
+// Предохранитель на массовую подгрузку, если источник не сообщил общий объём.
 const MAX_LOAD_COUNT = 5000;
 
 // Сколько профессий показывать в сайдбаре до раскрытия полного списка (#19).
@@ -864,9 +928,24 @@ const PROFESSION_PREVIEW = 10;
 
 function clampCount(value: number, max: number): number {
   if (!Number.isFinite(value)) {
-    return DEFAULT_LOAD_COUNT;
+    return PAGE_SIZE;
   }
   return Math.max(1, Math.min(Math.round(value), max));
+}
+
+// Профессии считаем на клиенте из уже подгруженного кэша, чтобы фильтры и
+// список не опрашивали API повторно (issue #23, пп. 1/2).
+function countProfessions(
+  features: VacancyFeatureCollection["features"],
+): ProfessionCount[] {
+  const counter = new Map<string, number>();
+  for (const feature of features) {
+    const name = feature.properties.profession || "—";
+    counter.set(name, (counter.get(name) ?? 0) + 1);
+  }
+  return Array.from(counter.entries())
+    .map(([profession, count]) => ({ profession, count }))
+    .sort((a, b) => b.count - a.count);
 }
 
 function MapView({
@@ -876,26 +955,46 @@ function MapView({
   objects: TwinObject[];
   session: Session;
 }) {
-  // Гость получает один запрос к API (issue #21); остальным ролям доступна
-  // подгрузка указанного числа вакансий.
+  // Гость получает одну страницу открытого API (issue #21); остальным ролям
+  // доступна прогрессивная подгрузка указанного числа вакансий.
   const isGuest = session.role === "guest";
   const [showVacancies, setShowVacancies] = useState(true);
   const [basemap, setBasemap] = useState<Basemap>("osm");
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [vacancies, setVacancies] =
+  // Единый кэш всех подгруженных вакансий (уже без дублей и без пустых —
+  // фильтрует бэкенд). Фильтры строят отображаемый слой из него, не обращаясь
+  // к API повторно (issue #23, пп. 1/2/6/9).
+  const [allVacancies, setAllVacancies] =
     useState<VacancyFeatureCollection>(EMPTY_VACANCY_FC);
-  const [professions, setProfessions] = useState<ProfessionCount[]>([]);
   const [meta, setMeta] = useState<VacancyMeta | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [salaryMin, setSalaryMin] = useState(0);
   const [showAllProfessions, setShowAllProfessions] = useState(false);
-  // Введённое в поле число и фактически применённое (по которому идёт запрос).
-  const [countInput, setCountInput] = useState(DEFAULT_LOAD_COUNT);
-  const [requestedCount, setRequestedCount] = useState(DEFAULT_LOAD_COUNT);
-  const [loaded, setLoaded] = useState(0);
+  // Введённое в поле число и фактически запрошенное (цель прогрузки).
+  const [countInput, setCountInput] = useState(PAGE_SIZE);
+  // Счётчик подгруженных вакансий в реальном времени (issue #23, п. 5).
+  const [loadedProgress, setLoadedProgress] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadedAt, setLoadedAt] = useState<Date | null>(null);
+  const [exhausted, setExhausted] = useState(false);
+  // Модальное окно списка вакансий выбранного специалиста (issue #23).
+  const [listProfession, setListProfession] = useState<string | null>(null);
+  // Точка, к которой карта приближается по клику из списка (issue #23, п. 3).
+  const [focusPoint, setFocusPoint] = useState<{
+    point: [number, number];
+    nonce: number;
+  } | null>(null);
+  const focusNonceRef = useRef(0);
+  // Токен активной загрузки: увеличиваем при старте новой, чтобы прервать
+  // предыдущую (например, при повторном клике «Загрузить»).
+  const loadTokenRef = useRef(0);
 
-  const maxLoad = meta?.max_limit ?? MAX_LOAD_COUNT;
+  const total = meta?.total ?? 0;
+  // Верхний предел поля ввода равен общему числу вакансий на «Работа России»
+  // (issue #23, п. 11). Если объём ещё не известен — временный предохранитель.
+  const maxLoad = total || MAX_LOAD_COUNT;
 
   useEffect(() => {
     void fetchVacanciesMeta().then(setMeta);
@@ -904,48 +1003,119 @@ function MapView({
     void fetchConfig().then(setConfig);
   }, []);
 
-  // Список профессий зависит от того, сколько вакансий подгружено: для гостя —
-  // одна страница, для остальных — выбранное число.
-  useEffect(() => {
-    const count = isGuest ? undefined : requestedCount;
-    void fetchTopProfessions(100, count, session).then(setProfessions);
-  }, [isGuest, requestedCount, session]);
-
-  // Одна загрузка слоя на каждое изменение фильтра/числа. Гостю count не
-  // передаётся — бэкенд сам ограничивает выдачу одной страницей (issue #21).
-  useEffect(() => {
-    if (!showVacancies) {
-      setVacancies(EMPTY_VACANCY_FC);
-      setLoaded(0);
-      return;
-    }
-    const filter = selected ?? (search.trim() || undefined);
-    const count = isGuest ? undefined : requestedCount;
-    let cancelled = false;
+  // Прогрессивная загрузка: листаем страницы по одной, после каждой обновляем
+  // кэш и счётчик, чтобы интерфейс не выглядел «зависшим» (issue #23, п. 5).
+  // Гостю доступна только первая страница (issue #21). При ошибке показываем
+  // сообщение и оставляем ранее загруженные данные (issue #23, п. 10).
+  const runLoad = async (target: number) => {
+    const token = ++loadTokenRef.current;
     setLoading(true);
-    setVacancies(EMPTY_VACANCY_FC);
-
-    void fetchVacancies(filter, count, session).then((collection) => {
-      if (cancelled) {
+    setError(null);
+    setLoadedProgress(0);
+    const byId = new Map<
+      string,
+      VacancyFeatureCollection["features"][number]
+    >();
+    let page = 0;
+    let done = false;
+    try {
+      while (!done) {
+        const collection = await fetchVacanciesPage(page, session);
+        if (loadTokenRef.current !== token) {
+          return; // загрузку прервал более свежий запрос
+        }
+        for (const feature of collection.features) {
+          byId.set(feature.properties.id, feature);
+        }
+        setAllVacancies({
+          type: "FeatureCollection",
+          features: Array.from(byId.values()),
+        });
+        setLoadedProgress(byId.size);
+        const empty = collection.features.length === 0;
+        done = isGuest || collection.exhausted || byId.size >= target || empty;
+        if (done) {
+          setExhausted(collection.exhausted || empty);
+        }
+        page += 1;
+      }
+      setLoadedAt(new Date());
+    } catch (caught) {
+      if (loadTokenRef.current !== token) {
         return;
       }
-      setVacancies({
-        type: "FeatureCollection",
-        features: collection.features,
-      });
-      setLoaded(collection.loaded);
-      setLoading(false);
-    });
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Не удалось загрузить вакансии.",
+      );
+    } finally {
+      if (loadTokenRef.current === token) {
+        setLoading(false);
+      }
+    }
+  };
 
-    return () => {
-      cancelled = true;
-    };
-  }, [showVacancies, selected, search, isGuest, requestedCount, session]);
+  // Первичная загрузка одной страницы при монтировании — карта не пустая сразу.
+  useEffect(() => {
+    void runLoad(PAGE_SIZE);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
 
   const yandexKey = config?.yandex_api_key || BUILD_TIME_YANDEX_KEY;
   const yandexAvailable = yandexKey.length > 0;
-  const total = meta?.total ?? 0;
-  const shown = vacancies.features.length;
+
+  // Профессии считаем из кэша — без отдельного запроса к API (issue #23).
+  const professions = useMemo(
+    () => countProfessions(allVacancies.features),
+    [allVacancies],
+  );
+
+  // Максимальная зарплата в кэше — верхняя граница ползунка фильтра.
+  const salaryCap = useMemo(() => {
+    let max = 0;
+    for (const feature of allVacancies.features) {
+      const value = feature.properties.salary_value ?? 0;
+      if (value > max) {
+        max = value;
+      }
+    }
+    // Округляем вверх до 10 000, чтобы ползунок имел «круглый» предел.
+    return Math.max(10000, Math.ceil(max / 10000) * 10000);
+  }, [allVacancies]);
+
+  // Отображаемый слой строится из кэша клиентскими фильтрами: профессия/поиск
+  // и порог зарплаты (issue #23, пп. 1/2/7). Повторных запросов к API нет.
+  const displayed = useMemo<VacancyFeatureCollection>(() => {
+    const needle = (selected ?? search).trim().toLowerCase();
+    const features = allVacancies.features.filter((feature) => {
+      const props = feature.properties;
+      if (needle && !props.profession.toLowerCase().includes(needle)) {
+        return false;
+      }
+      if (salaryMin > 0 && (props.salary_value ?? 0) < salaryMin) {
+        return false;
+      }
+      return true;
+    });
+    return { type: "FeatureCollection", features };
+  }, [allVacancies, selected, search, salaryMin]);
+
+  // Вакансии выбранного специалиста для модального списка (из кэша, с учётом
+  // порога зарплаты — как на карте).
+  const listFeatures = useMemo(() => {
+    if (!listProfession) {
+      return [];
+    }
+    return allVacancies.features.filter(
+      (feature) =>
+        feature.properties.profession === listProfession &&
+        (salaryMin <= 0 || (feature.properties.salary_value ?? 0) >= salaryMin),
+    );
+  }, [allVacancies, listProfession, salaryMin]);
+
+  const shown = displayed.features.length;
+  const loadedCount = allVacancies.features.length;
   const visibleProfessions = showAllProfessions
     ? professions
     : professions.slice(0, PROFESSION_PREVIEW);
@@ -962,7 +1132,14 @@ function MapView({
 
   const submitCount = (event: React.FormEvent) => {
     event.preventDefault();
-    setRequestedCount(clampCount(countInput, maxLoad));
+    void runLoad(clampCount(countInput, maxLoad));
+  };
+
+  const focusOnPoint = (point: [number, number]) => {
+    focusNonceRef.current += 1;
+    setFocusPoint({ point, nonce: focusNonceRef.current });
+    // Закрываем список — переносим внимание на карту (issue #23, п. 3).
+    setListProfession(null);
   };
 
   return (
@@ -975,16 +1152,18 @@ function MapView({
         <div className="map-main">
           <MapPanel
             objects={objects}
-            vacancies={vacancies}
+            vacancies={displayed}
             showVacancies={showVacancies}
             basemap={basemap}
             yandexKey={yandexKey}
+            focusPoint={focusPoint}
           />
           <p className="panel-note">
             Подсвечены все субъекты РФ. Кликните по региону, объекту или
-            вакансии, чтобы увидеть карточку. Слой вакансий «Работа России»
-            можно включать и выключать; кластеры с цифрами при приближении
-            распадаются на маркеры работодателей.
+            вакансии, чтобы увидеть карточку. Кнопкой «домой» на карте можно
+            вернуться к обзору всей России. Слой вакансий «Работа России» можно
+            включать и выключать; кластеры с цифрами при приближении распадаются
+            на маркеры работодателей.
           </p>
         </div>
         <aside className="map-sidebar" aria-label="Слои и фильтры карты">
@@ -1050,17 +1229,41 @@ function MapView({
                   aria-label="Поиск профессии"
                 />
               </form>
+              <div className="vacancy-salary">
+                <label htmlFor="vacancy-salary-min">
+                  Зарплата не ниже:{" "}
+                  <strong>{salaryMin.toLocaleString("ru-RU")} ₽</strong>
+                </label>
+                <input
+                  id="vacancy-salary-min"
+                  type="range"
+                  min={0}
+                  max={salaryCap}
+                  step={10000}
+                  value={Math.min(salaryMin, salaryCap)}
+                  onChange={(event) => setSalaryMin(Number(event.target.value))}
+                  aria-label="Минимальная зарплата"
+                />
+                {salaryMin > 0 && (
+                  <button
+                    type="button"
+                    className="clear-filter"
+                    onClick={() => setSalaryMin(0)}
+                  >
+                    сбросить порог
+                  </button>
+                )}
+              </div>
               {isGuest ? (
                 <p className="sidebar-hint">
-                  Гостевой режим: загружается одна страница открытого API
-                  «Работа России» ({meta?.guest_limit ?? DEFAULT_LOAD_COUNT}{" "}
-                  вакансий). Войдите под ролью, чтобы подгрузить больше (issue
-                  #21).
+                  Гостевой режим: загружена одна страница открытого API «Работа
+                  России» ({meta?.guest_limit ?? PAGE_SIZE} вакансий). Войдите
+                  под ролью, чтобы подгрузить больше (issue #21).
                 </p>
               ) : (
                 <form className="vacancy-load" onSubmit={submitCount}>
                   <label htmlFor="vacancy-load-count">
-                    Загрузить вакансий (до {maxLoad})
+                    Загрузить вакансий (до {maxLoad.toLocaleString("ru-RU")})
                   </label>
                   <div className="vacancy-load-row">
                     <input
@@ -1081,24 +1284,45 @@ function MapView({
                   </div>
                 </form>
               )}
+              {error && (
+                <p className="vacancy-error" role="alert">
+                  Ошибка загрузки: {error}
+                </p>
+              )}
               <div className="vacancy-count">
-                Показано <strong>{shown}</strong>
-                {total ? ` из ${total}` : ""} вакансий
-                {loaded ? ` · подгружено ${loaded}` : ""}
-                {selected ? ` · «${selected}»` : ""}
-                {(selected || search) && (
-                  <button
-                    type="button"
-                    className="clear-filter"
-                    onClick={() => {
-                      setSelected(null);
-                      setSearch("");
-                    }}
-                  >
-                    сбросить
-                  </button>
+                {loading ? (
+                  <>
+                    Загрузка… подгружено <strong>{loadedProgress}</strong>
+                    {total ? ` из ${total.toLocaleString("ru-RU")}` : ""}
+                  </>
+                ) : (
+                  <>
+                    Показано <strong>{shown}</strong>
+                    {total ? ` из ${total.toLocaleString("ru-RU")}` : ""}{" "}
+                    вакансий
+                    {loadedCount ? ` · подгружено ${loadedCount}` : ""}
+                    {exhausted && loadedCount ? " (все доступные)" : ""}
+                    {selected ? ` · «${selected}»` : ""}
+                    {(selected || search) && (
+                      <button
+                        type="button"
+                        className="clear-filter"
+                        onClick={() => {
+                          setSelected(null);
+                          setSearch("");
+                        }}
+                      >
+                        сбросить
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
+              {loadedAt && (
+                <p className="vacancy-loaded-at">
+                  Данные загружены: {loadedAt.toLocaleString("ru-RU")}
+                </p>
+              )}
               <div className="profession-list" aria-label="Список специалистов">
                 {visibleProfessions.map((item) => {
                   const max = professions[0]?.count || 1;
@@ -1128,14 +1352,8 @@ function MapView({
                       <button
                         type="button"
                         className="profession-all"
-                        onClick={() =>
-                          void openVacancyList(
-                            item.profession,
-                            session,
-                            isGuest ? undefined : requestedCount,
-                          )
-                        }
-                        title="Открыть полный список вакансий этого специалиста в новой вкладке"
+                        onClick={() => setListProfession(item.profession)}
+                        title="Открыть полный список вакансий этого специалиста"
                       >
                         все
                       </button>
@@ -1166,6 +1384,15 @@ function MapView({
           )}
         </aside>
       </div>
+      {listProfession && (
+        <VacancyListModal
+          profession={listProfession}
+          features={listFeatures}
+          loadedAt={loadedAt}
+          onClose={() => setListProfession(null)}
+          onFocusPoint={focusOnPoint}
+        />
+      )}
     </section>
   );
 }
@@ -1569,7 +1796,7 @@ function Workspace({
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h1>Цифровой двойник России v0.1.5</h1>
+            <h1>Цифровой двойник России v0.1.6</h1>
             <p>
               Открытый контур: каталоги, сценарии, отчёты и аудит на
               демо-данных.

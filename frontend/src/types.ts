@@ -114,6 +114,11 @@ export type VacancyFeatureCollection = GeoJSON.FeatureCollection<
     employer: string;
     region: string;
     salary: string | null;
+    /**
+     * Числовое значение зарплаты (нижняя граница) для клиентского фильтра по
+     * порогу (issue #23). ``null`` — зарплата не указана.
+     */
+    salary_value: number | null;
     url: string;
   }
 >;
@@ -129,6 +134,21 @@ export type VacancyCollection = VacancyFeatureCollection & {
   total: number;
   loaded: number;
   returned: number;
+};
+
+/**
+ * Одна страница слоя вакансий для прогрессивной загрузки (issue #23).
+ *
+ * ``page`` — номер отданной страницы, ``page_size`` — её размер, ``exhausted``
+ * — исчерпан ли источник (страница покрыла последние записи). Фронтенд листает
+ * страницы по одной, показывая счётчик подгруженных вакансий в реальном
+ * времени, и кэширует накопленный результат, чтобы фильтры и кнопка «все» не
+ * опрашивали API повторно.
+ */
+export type VacancyPage = VacancyCollection & {
+  page: number;
+  page_size: number;
+  exhausted: boolean;
 };
 
 export interface RoleInfo {

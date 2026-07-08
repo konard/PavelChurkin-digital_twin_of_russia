@@ -13,6 +13,7 @@ import type {
   VacancyCollection,
   VacancyFeatureCollection,
   VacancyMeta,
+  VacancyPage,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -184,6 +185,35 @@ export function fetchVacancies(
     EMPTY_VACANCY_COLLECTION,
     roleHeaders(session),
   );
+}
+
+/**
+ * Загрузить одну страницу слоя вакансий (issue #23).
+ *
+ * В отличие от {@link fetchVacancies}, при ошибке бросает исключение, чтобы
+ * интерфейс показал сообщение о неудачной загрузке (issue #23, п. 10), а не
+ * молча вернул пустой слой. ``offset`` — номер страницы (0, 1, 2…). Гостю
+ * бэкенд всё равно отдаёт первую страницу.
+ */
+export async function fetchVacanciesPage(
+  offset: number,
+  session?: Session,
+): Promise<VacancyPage> {
+  const params = new URLSearchParams({ offset: String(offset) });
+  const response = await fetch(
+    `${API_BASE}/api/v1/vacancies?${params.toString()}`,
+    { headers: roleHeaders(session) },
+  );
+  if (!response.ok) {
+    const detail = await response
+      .json()
+      .then((body: { detail?: string }) => body.detail)
+      .catch(() => undefined);
+    throw new Error(
+      detail ?? `Не удалось загрузить вакансии (код ${response.status}).`,
+    );
+  }
+  return (await response.json()) as VacancyPage;
 }
 
 export function fetchTopProfessions(
