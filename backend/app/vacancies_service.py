@@ -339,6 +339,4 @@ def offline_vacancy_service(sample_path: Path = DEMO_VACANCIES_SAMPLE) -> Vacanc
         start = offset * limit
         return sample_vacancies[start : start + limit], sample_total
 
-    return VacancyService(
-        fetcher=fetcher, page_fetcher=page_fetcher, sample_path=sample_path
-    )
+    return VacancyService(fetcher=fetcher, page_fetcher=page_fetcher, sample_path=sample_path)
