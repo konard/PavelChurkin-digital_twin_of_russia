@@ -89,6 +89,31 @@ class Vacancy:
     def has_point(self) -> bool:
         return self.lat is not None and self.lon is not None
 
+    @property
+    def has_salary(self) -> bool:
+        """Есть ли у вакансии указанная зарплата (issue #23).
+
+        Вакансии без зарплаты выкидываются из выдачи, поэтому «есть зарплата» —
+        это положительное значение хотя бы одной из границ ``salary_from`` или
+        ``salary_to``.
+        """
+
+        return bool((self.salary_from or 0) > 0 or (self.salary_to or 0) > 0)
+
+    @property
+    def salary_value(self) -> float | None:
+        """Эффективная нижняя зарплата для фильтра по порогу (issue #23).
+
+        Берётся ``salary_from``; если её нет — ``salary_to``. ``None`` означает
+        отсутствие зарплаты вообще.
+        """
+
+        if self.salary_from and self.salary_from > 0:
+            return self.salary_from
+        if self.salary_to and self.salary_to > 0:
+            return self.salary_to
+        return None
+
 
 @dataclass
 class _HeaderMap:
