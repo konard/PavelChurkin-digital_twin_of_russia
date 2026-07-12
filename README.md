@@ -269,6 +269,14 @@ make down
 - **Как работать с MinIO/S3 и хранить несколько баз для сравнения** (issue #25
   п. 3): подробная инструкция — [docs/minio-storage.md](docs/minio-storage.md).
 
+| Фильтр по дате на карте | Кнопка отчёта рядом со сценариями |
+|---|---|
+| ![Фильтр по дате v0.1.7](docs/screenshots/v0.1.7-map-date-filter.png?raw=true) | ![Карточка отчёта v0.1.7](docs/screenshots/v0.1.7-scenarios-report-card.png?raw=true) |
+
+| Отчёт «Анализ вакансий Работа России» | Кликабельные метрики готовности |
+|---|---|
+| ![Отчёт v0.1.7](docs/screenshots/v0.1.7-reports.png?raw=true) | ![Метрики v0.1.7](docs/screenshots/v0.1.7-metric-expanded.png?raw=true) |
+
 ## Требования к серверу (issue #23 п. 8)
 
 Прототип рассчитан на скромный сервер: тяжёлые данные не хранятся локально, а

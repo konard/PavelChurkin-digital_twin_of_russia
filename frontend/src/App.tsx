@@ -795,7 +795,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         <div className="brand login-brand">DTR</div>
         <h1>Цифровой двойник России</h1>
         <p className="login-sub">
-          Открытый контур v0.1.6. Войдите как оператор платформы или другая роль
+          Открытый контур v0.1.7. Войдите как оператор платформы или другая роль
           — либо продолжите как гость без пароля.
         </p>
 
