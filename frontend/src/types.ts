@@ -120,6 +120,14 @@ export type VacancyFeatureCollection = GeoJSON.FeatureCollection<
      */
     salary_value: number | null;
     url: string;
+    /**
+     * Дата создания (публикации) вакансии в источнике (issue #25). ``null`` —
+     * источник не указал дату. Используется фильтром по дате и отчётом «Анализ
+     * вакансий Работа России».
+     */
+    created_at: string | null;
+    /** Дата последнего изменения вакансии в источнике (issue #25). */
+    modified_at: string | null;
   }
 >;
 
