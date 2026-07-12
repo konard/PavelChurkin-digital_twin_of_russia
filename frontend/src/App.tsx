@@ -2,7 +2,10 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import {
   Archive,
+  BarChart3,
   Briefcase,
+  CalendarClock,
+  ChevronDown,
   Download,
   FileDown,
   Home,
@@ -20,7 +23,7 @@ import maplibregl, {
   type SourceSpecification,
   type StyleSpecification,
 } from "maplibre-gl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createApiKey,
@@ -32,11 +35,21 @@ import {
   fetchObjects,
   fetchRoles,
   fetchScenarios,
-  fetchVacanciesMeta,
-  fetchVacanciesPage,
   login,
   runScenario,
 } from "./api";
+import {
+  buildVacancyReport,
+  parseDate,
+  vacancyReportToMarkdown,
+  type VacancyReport,
+} from "./reports";
+import {
+  MAX_LOAD_COUNT,
+  PAGE_SIZE,
+  useVacancies,
+  type VacanciesState,
+} from "./useVacancies";
 import type {
   ApiKeyResponse,
   AppConfig,
@@ -48,7 +61,6 @@ import type {
   Session,
   TwinObject,
   VacancyFeatureCollection,
-  VacancyMeta,
 } from "./types";
 
 const SESSION_KEY = "dtr.session";
@@ -783,7 +795,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         <div className="brand login-brand">DTR</div>
         <h1>Цифровой двойник России</h1>
         <p className="login-sub">
-          Открытый контур v0.1.6. Войдите как оператор платформы или другая роль
+          Открытый контур v0.1.7. Войдите как оператор платформы или другая роль
           — либо продолжите как гость без пароля.
         </p>
 
@@ -917,12 +929,6 @@ function RunResultView({ run }: { run: ScenarioRun }) {
   );
 }
 
-// Размер страницы открытого API — по столько вакансий подгружаем за один
-// запрос при прогрессивной загрузке (issue #23).
-const PAGE_SIZE = 100;
-// Предохранитель на массовую подгрузку, если источник не сообщил общий объём.
-const MAX_LOAD_COUNT = 5000;
-
 // Сколько профессий показывать в сайдбаре до раскрытия полного списка (#19).
 const PROFESSION_PREVIEW = 10;
 
@@ -951,34 +957,43 @@ function countProfessions(
 function MapView({
   objects,
   session,
+  vacancies,
 }: {
   objects: TwinObject[];
   session: Session;
+  // Кэш подгруженных вакансий поднят на уровень рабочего пространства
+  // (issue #25, п. 2): переживает переключение разделов.
+  vacancies: VacanciesState;
 }) {
   // Гость получает одну страницу открытого API (issue #21); остальным ролям
   // доступна прогрессивная подгрузка указанного числа вакансий.
   const isGuest = session.role === "guest";
+  const {
+    allVacancies,
+    meta,
+    loadedProgress,
+    loading,
+    error,
+    loadedAt,
+    exhausted,
+    runLoad,
+  } = vacancies;
   const [showVacancies, setShowVacancies] = useState(true);
   const [basemap, setBasemap] = useState<Basemap>("osm");
   const [config, setConfig] = useState<AppConfig | null>(null);
-  // Единый кэш всех подгруженных вакансий (уже без дублей и без пустых —
-  // фильтрует бэкенд). Фильтры строят отображаемый слой из него, не обращаясь
-  // к API повторно (issue #23, пп. 1/2/6/9).
-  const [allVacancies, setAllVacancies] =
-    useState<VacancyFeatureCollection>(EMPTY_VACANCY_FC);
-  const [meta, setMeta] = useState<VacancyMeta | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [salaryMin, setSalaryMin] = useState(0);
   const [showAllProfessions, setShowAllProfessions] = useState(false);
+  // Фильтр по дате (issue #25, п. 1): показывать вакансии, у которых дата
+  // создания или изменения не старше указанного числа дней. ``0`` — фильтр
+  // выключен.
+  const [dateField, setDateField] = useState<"created_at" | "modified_at">(
+    "modified_at",
+  );
+  const [dateDays, setDateDays] = useState(0);
   // Введённое в поле число и фактически запрошенное (цель прогрузки).
   const [countInput, setCountInput] = useState(PAGE_SIZE);
-  // Счётчик подгруженных вакансий в реальном времени (issue #23, п. 5).
-  const [loadedProgress, setLoadedProgress] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loadedAt, setLoadedAt] = useState<Date | null>(null);
-  const [exhausted, setExhausted] = useState(false);
   // Модальное окно списка вакансий выбранного специалиста (issue #23).
   const [listProfession, setListProfession] = useState<string | null>(null);
   // Точка, к которой карта приближается по клику из списка (issue #23, п. 3).
@@ -987,9 +1002,6 @@ function MapView({
     nonce: number;
   } | null>(null);
   const focusNonceRef = useRef(0);
-  // Токен активной загрузки: увеличиваем при старте новой, чтобы прервать
-  // предыдущую (например, при повторном клике «Загрузить»).
-  const loadTokenRef = useRef(0);
 
   const total = meta?.total ?? 0;
   // Верхний предел поля ввода равен общему числу вакансий на «Работа России»
@@ -997,70 +1009,10 @@ function MapView({
   const maxLoad = total || MAX_LOAD_COUNT;
 
   useEffect(() => {
-    void fetchVacanciesMeta().then(setMeta);
     // Ключ Яндекса берётся из рантайм-конфигурации, поэтому работает без
     // пересборки фронтенда (issue #21).
     void fetchConfig().then(setConfig);
   }, []);
-
-  // Прогрессивная загрузка: листаем страницы по одной, после каждой обновляем
-  // кэш и счётчик, чтобы интерфейс не выглядел «зависшим» (issue #23, п. 5).
-  // Гостю доступна только первая страница (issue #21). При ошибке показываем
-  // сообщение и оставляем ранее загруженные данные (issue #23, п. 10).
-  const runLoad = async (target: number) => {
-    const token = ++loadTokenRef.current;
-    setLoading(true);
-    setError(null);
-    setLoadedProgress(0);
-    const byId = new Map<
-      string,
-      VacancyFeatureCollection["features"][number]
-    >();
-    let page = 0;
-    let done = false;
-    try {
-      while (!done) {
-        const collection = await fetchVacanciesPage(page, session);
-        if (loadTokenRef.current !== token) {
-          return; // загрузку прервал более свежий запрос
-        }
-        for (const feature of collection.features) {
-          byId.set(feature.properties.id, feature);
-        }
-        setAllVacancies({
-          type: "FeatureCollection",
-          features: Array.from(byId.values()),
-        });
-        setLoadedProgress(byId.size);
-        const empty = collection.features.length === 0;
-        done = isGuest || collection.exhausted || byId.size >= target || empty;
-        if (done) {
-          setExhausted(collection.exhausted || empty);
-        }
-        page += 1;
-      }
-      setLoadedAt(new Date());
-    } catch (caught) {
-      if (loadTokenRef.current !== token) {
-        return;
-      }
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Не удалось загрузить вакансии.",
-      );
-    } finally {
-      if (loadTokenRef.current === token) {
-        setLoading(false);
-      }
-    }
-  };
-
-  // Первичная загрузка одной страницы при монтировании — карта не пустая сразу.
-  useEffect(() => {
-    void runLoad(PAGE_SIZE);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
 
   const yandexKey = config?.yandex_api_key || BUILD_TIME_YANDEX_KEY;
   const yandexAvailable = yandexKey.length > 0;
@@ -1084,25 +1036,52 @@ function MapView({
     return Math.max(10000, Math.ceil(max / 10000) * 10000);
   }, [allVacancies]);
 
-  // Отображаемый слой строится из кэша клиентскими фильтрами: профессия/поиск
-  // и порог зарплаты (issue #23, пп. 1/2/7). Повторных запросов к API нет.
-  const displayed = useMemo<VacancyFeatureCollection>(() => {
-    const needle = (selected ?? search).trim().toLowerCase();
-    const features = allVacancies.features.filter((feature) => {
+  // Порог даты в миллисекундах: вакансии старше него скрываются (issue #25).
+  // ``null`` — фильтр по дате выключен.
+  const dateThreshold = useMemo(() => {
+    if (dateDays <= 0) {
+      return null;
+    }
+    return Date.now() - dateDays * 24 * 60 * 60 * 1000;
+  }, [dateDays]);
+
+  // Общий предикат по зарплате и дате — применяется и на карте, и в списке
+  // выбранного специалиста, чтобы фильтры совпадали (issue #25).
+  const matchesSalaryAndDate = useMemo(() => {
+    return (feature: VacancyFeatureCollection["features"][number]): boolean => {
       const props = feature.properties;
-      if (needle && !props.profession.toLowerCase().includes(needle)) {
-        return false;
-      }
       if (salaryMin > 0 && (props.salary_value ?? 0) < salaryMin) {
         return false;
       }
+      if (dateThreshold !== null) {
+        const ts = parseDate(props[dateField]);
+        if (ts === null || ts < dateThreshold) {
+          return false;
+        }
+      }
       return true;
+    };
+  }, [salaryMin, dateThreshold, dateField]);
+
+  // Отображаемый слой строится из кэша клиентскими фильтрами (issue #23/#25):
+  // профессия/поиск + зарплата + интервал по дате. Повторных запросов к API
+  // нет — при смене любого фильтра список обновляется.
+  const displayed = useMemo<VacancyFeatureCollection>(() => {
+    const needle = (selected ?? search).trim().toLowerCase();
+    const features = allVacancies.features.filter((feature) => {
+      if (
+        needle &&
+        !feature.properties.profession.toLowerCase().includes(needle)
+      ) {
+        return false;
+      }
+      return matchesSalaryAndDate(feature);
     });
     return { type: "FeatureCollection", features };
-  }, [allVacancies, selected, search, salaryMin]);
+  }, [allVacancies, selected, search, matchesSalaryAndDate]);
 
   // Вакансии выбранного специалиста для модального списка (из кэша, с учётом
-  // порога зарплаты — как на карте).
+  // порога зарплаты и интервала по дате — как на карте).
   const listFeatures = useMemo(() => {
     if (!listProfession) {
       return [];
@@ -1110,9 +1089,9 @@ function MapView({
     return allVacancies.features.filter(
       (feature) =>
         feature.properties.profession === listProfession &&
-        (salaryMin <= 0 || (feature.properties.salary_value ?? 0) >= salaryMin),
+        matchesSalaryAndDate(feature),
     );
-  }, [allVacancies, listProfession, salaryMin]);
+  }, [allVacancies, listProfession, matchesSalaryAndDate]);
 
   const shown = displayed.features.length;
   const loadedCount = allVacancies.features.length;
@@ -1251,6 +1230,51 @@ function MapView({
                     onClick={() => setSalaryMin(0)}
                   >
                     сбросить порог
+                  </button>
+                )}
+              </div>
+              <div className="vacancy-date">
+                <label className="vacancy-date-title">
+                  <CalendarClock size={14} /> Фильтр по дате
+                </label>
+                <div className="vacancy-date-row">
+                  <select
+                    value={dateField}
+                    onChange={(event) =>
+                      setDateField(
+                        event.target.value as "created_at" | "modified_at",
+                      )
+                    }
+                    aria-label="Поле даты для фильтра"
+                  >
+                    <option value="modified_at">по дате изменения</option>
+                    <option value="created_at">по дате создания</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={dateDays}
+                    onChange={(event) =>
+                      setDateDays(Math.max(0, Number(event.target.value)))
+                    }
+                    aria-label="Интервал в днях"
+                  />
+                  <span>дней</span>
+                </div>
+                <p className="sidebar-hint">
+                  {dateDays > 0
+                    ? `Показаны вакансии не старше ${dateDays} дн. ` +
+                      `(${dateField === "created_at" ? "создание" : "изменение"}).`
+                    : "0 — без ограничения по дате."}
+                </p>
+                {dateDays > 0 && (
+                  <button
+                    type="button"
+                    className="clear-filter"
+                    onClick={() => setDateDays(0)}
+                  >
+                    сбросить дату
                   </button>
                 )}
               </div>
@@ -1401,10 +1425,14 @@ function ScenariosView({
   session,
   scenarios,
   onRun,
+  onOpenReports,
 }: {
   session: Session;
   scenarios: Scenario[];
   onRun: (run: ScenarioRun) => void;
+  // Переход к разделу отчётов (issue #25): генерация отчётов вынесена вместе со
+  // сценариями, но открывается в модуле «Отчёты».
+  onOpenReports: () => void;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [run, setRun] = useState<ScenarioRun | null>(null);
@@ -1475,6 +1503,23 @@ function ScenariosView({
             </button>
           </article>
         ))}
+        {/* Генерация отчётов вынесена вместе со сценариями (issue #25): ниже
+            демо-сценариев отдельной карточкой — анализ вакансий «Работа
+            России», который открывается в разделе «Отчёты». */}
+        <article className="scenario-card scenario-card-report">
+          <div>
+            <strong>Анализ вакансий «Работа России»</strong>
+            <span>
+              Топ востребованных и оплачиваемых специальностей, городов и
+              вакансий по датам создания и изменения. Число позиций в топе
+              настраивается.
+            </span>
+            <small>отчёт · issue #25</small>
+          </div>
+          <button type="button" onClick={onOpenReports}>
+            <BarChart3 size={15} /> Сформировать отчёт
+          </button>
+        </article>
       </div>
 
       {error && <p className="login-error">{error}</p>}
@@ -1607,51 +1652,329 @@ function CatalogView({
   );
 }
 
+// Скачать текст как файл (issue #25: отчёты должны быть скачиваемыми).
+function downloadTextFile(filename: string, text: string, mime: string): void {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Раскрывающийся модуль отчёта (issue #25): заголовок-кнопка сворачивает и
+// разворачивает содержимое, справа — необязательная кнопка скачивания.
+function ReportModule({
+  title,
+  icon,
+  subtitle,
+  defaultOpen = false,
+  onDownload,
+  children,
+}: {
+  title: string;
+  icon: ReactNode;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  onDownload?: () => void;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className={`report-module${open ? " open" : ""}`}>
+      <header className="report-module-head">
+        <button
+          type="button"
+          className="report-module-toggle"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+        >
+          <ChevronDown size={16} className="report-module-chevron" />
+          {icon}
+          <span className="report-module-title">{title}</span>
+          {subtitle && (
+            <span className="report-module-subtitle">{subtitle}</span>
+          )}
+        </button>
+        {onDownload && (
+          <button
+            type="button"
+            className="report-module-download"
+            onClick={onDownload}
+            title="Скачать отчёт"
+          >
+            <Download size={14} /> Скачать
+          </button>
+        )}
+      </header>
+      {open && <div className="report-module-body">{children}</div>}
+    </section>
+  );
+}
+
+function ReportRankedList({ rows }: { rows: string[] }) {
+  if (rows.length === 0) {
+    return <p className="panel-note">Нет данных — подгрузите вакансии.</p>;
+  }
+  return (
+    <ol className="report-ranked">
+      {rows.map((row, index) => (
+        <li key={`${index}-${row}`}>{row}</li>
+      ))}
+    </ol>
+  );
+}
+
+const money = (value: number): string => `${value.toLocaleString("ru-RU")} ₽`;
+
+// Кликабельная метрика готовности (issue #25): по нажатию на число
+// раскрывается список значений.
+function ReportMetric({ label, items }: { label: string; items: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <article className={`report-metric${open ? " open" : ""}`}>
+      <span>{label}</span>
+      <button
+        type="button"
+        className="report-metric-value"
+        onClick={() => setOpen((value) => !value)}
+        disabled={items.length === 0}
+        aria-expanded={open}
+        title="Показать список"
+      >
+        {items.length || "..."}
+      </button>
+      {open && items.length > 0 && (
+        <ul className="report-metric-list">
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      )}
+    </article>
+  );
+}
+
+function VacancyAnalysisReport({
+  report,
+  loadedAt,
+  onDownload,
+}: {
+  report: VacancyReport;
+  loadedAt: Date | null;
+  onDownload: () => void;
+}) {
+  return (
+    <ReportModule
+      title="Анализ вакансий «Работа России»"
+      icon={<BarChart3 size={16} />}
+      subtitle={`${report.totalAnalyzed} вак.`}
+      defaultOpen
+      onDownload={onDownload}
+    >
+      <p className="report-meta">
+        Проанализировано вакансий: <strong>{report.totalAnalyzed}</strong> (с
+        зарплатой: {report.withSalary}). Размер топа: {report.topN}.
+        {loadedAt
+          ? ` Данные загружены ${loadedAt.toLocaleString("ru-RU")}.`
+          : ""}
+      </p>
+      <div className="report-grid">
+        <div className="report-block">
+          <h4>Топ востребованных специальностей</h4>
+          <ReportRankedList
+            rows={report.topProfessions.map(
+              (item) => `${item.name} — ${item.count} вак.`,
+            )}
+          />
+        </div>
+        <div className="report-block">
+          <h4>Топ самых оплачиваемых вакансий</h4>
+          <ReportRankedList
+            rows={report.topPaid.map(
+              (item) =>
+                `${item.profession} (${item.employer}, ${item.region}) — ${money(item.salary)}`,
+            )}
+          />
+        </div>
+        <div className="report-block">
+          <h4>Топ оплачиваемых среди востребованных</h4>
+          <ReportRankedList
+            rows={report.topPaidAmongDemand.map(
+              (item) =>
+                `${item.profession} — ${money(item.avgSalary)} (${item.count} вак.)`,
+            )}
+          />
+        </div>
+        <div className="report-block">
+          <h4>Топ городов по числу вакансий</h4>
+          <ReportRankedList
+            rows={report.topCitiesByCount.map(
+              (item) => `${item.name} — ${item.count} вак.`,
+            )}
+          />
+        </div>
+        <div className="report-block">
+          <h4>Топ городов по средней зарплате</h4>
+          <ReportRankedList
+            rows={report.topCitiesBySalary.map(
+              (item) => `${item.name} — ${money(item.value)}`,
+            )}
+          />
+        </div>
+        <div className="report-block">
+          <h4>Топ городов по зарплате востребованных</h4>
+          <ReportRankedList
+            rows={report.topCitiesByDemandPaid.map(
+              (item) => `${item.name} — ${money(item.value)}`,
+            )}
+          />
+        </div>
+        <div className="report-block">
+          <h4>Самые давние по дате создания</h4>
+          <ReportRankedList
+            rows={report.oldestCreated.map(
+              (item) => `${item.profession} (${item.region}) — ${item.date}`,
+            )}
+          />
+        </div>
+        <div className="report-block">
+          <h4>Недавние по дате создания</h4>
+          <ReportRankedList
+            rows={report.newestCreated.map(
+              (item) => `${item.profession} (${item.region}) — ${item.date}`,
+            )}
+          />
+        </div>
+        <div className="report-block">
+          <h4>Самые давние по дате изменения</h4>
+          <ReportRankedList
+            rows={report.oldestModified.map(
+              (item) => `${item.profession} (${item.region}) — ${item.date}`,
+            )}
+          />
+        </div>
+        <div className="report-block">
+          <h4>Недавние по дате изменения</h4>
+          <ReportRankedList
+            rows={report.newestModified.map(
+              (item) => `${item.profession} (${item.region}) — ${item.date}`,
+            )}
+          />
+        </div>
+      </div>
+    </ReportModule>
+  );
+}
+
 function ReportsView({
   run,
-  metrics,
+  datasets,
+  scenarios,
+  objects,
+  vacancies,
 }: {
   run: ScenarioRun | null;
-  metrics: {
-    datasets: number;
-    domains: number;
-    scenarios: number;
-    objects: number;
-  };
+  datasets: DatasetPassport[];
+  scenarios: Scenario[];
+  objects: TwinObject[];
+  vacancies: VacanciesState;
 }) {
+  // Настраиваемый размер топа для отчёта «Анализ вакансий» (issue #25).
+  const [topN, setTopN] = useState(20);
+  const { allVacancies, loadedAt } = vacancies;
+
+  const domains = useMemo(
+    () => Array.from(new Set(datasets.map((dataset) => dataset.domain))).sort(),
+    [datasets],
+  );
+
+  const report = useMemo(
+    () => buildVacancyReport(allVacancies.features, topN),
+    [allVacancies, topN],
+  );
+
+  const downloadReport = () => {
+    downloadTextFile(
+      "vacancy-analysis.md",
+      vacancyReportToMarkdown(report),
+      "text/markdown;charset=utf-8",
+    );
+  };
+
   return (
     <section className="panel">
       <div className="section-title">
         <FileDown size={18} />
         <h2>Отчёты</h2>
       </div>
-      <section className="metrics" aria-label="Метрики готовности">
-        <article>
-          <span>датасеты</span>
-          <strong>{metrics.datasets || "..."}</strong>
-        </article>
-        <article>
-          <span>домены</span>
-          <strong>{metrics.domains || "..."}</strong>
-        </article>
-        <article>
-          <span>сценарии</span>
-          <strong>{metrics.scenarios || "..."}</strong>
-        </article>
-        <article>
-          <span>объекты карты</span>
-          <strong>{metrics.objects || "..."}</strong>
-        </article>
-      </section>
-      {run ? (
-        <RunResultView run={run} />
-      ) : (
+
+      <ReportModule
+        title="Метрики готовности открытого контура"
+        icon={<BarChart3 size={16} />}
+        defaultOpen
+      >
         <p className="panel-note">
-          Запустите или откройте сценарий на вкладке «Сценарии», чтобы здесь
-          появился отчёт с источниками и версиями данных. Метрики готовности
-          открытого контура показаны выше.
+          Нажмите на число, чтобы раскрыть список (issue #25).
         </p>
-      )}
+        <section className="metrics" aria-label="Метрики готовности">
+          <ReportMetric
+            label="датасеты"
+            items={datasets.map((dataset) => dataset.title)}
+          />
+          <ReportMetric label="домены" items={domains} />
+          <ReportMetric
+            label="сценарии"
+            items={scenarios.map((scenario) => scenario.title)}
+          />
+          <ReportMetric
+            label="объекты карты"
+            items={objects.map((object) => object.name)}
+          />
+        </section>
+      </ReportModule>
+
+      <div className="report-topn">
+        <label htmlFor="report-topn">
+          Число позиций в топе: <strong>{topN}</strong>
+        </label>
+        <input
+          id="report-topn"
+          type="number"
+          min={1}
+          max={100}
+          step={1}
+          value={topN}
+          onChange={(event) =>
+            setTopN(Math.max(1, Math.min(100, Number(event.target.value) || 1)))
+          }
+          aria-label="Число позиций в топе"
+        />
+      </div>
+
+      <VacancyAnalysisReport
+        report={report}
+        loadedAt={loadedAt}
+        onDownload={downloadReport}
+      />
+
+      <ReportModule
+        title="Отчёт по сценарию"
+        icon={<FileDown size={16} />}
+        subtitle={run ? run.scenario_id : "нет запуска"}
+      >
+        {run ? (
+          <RunResultView run={run} />
+        ) : (
+          <p className="panel-note">
+            Запустите или откройте сценарий на вкладке «Сценарии», чтобы здесь
+            появился отчёт с источниками и версиями данных.
+          </p>
+        )}
+      </ReportModule>
     </section>
   );
 }
@@ -1751,6 +2074,9 @@ function Workspace({
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [objects, setObjects] = useState<TwinObject[]>([]);
   const [lastRun, setLastRun] = useState<ScenarioRun | null>(null);
+  // Кэш вакансий поднят на уровень рабочего пространства (issue #25, п. 2):
+  // результаты опроса API сохраняются при переключении разделов.
+  const vacancies = useVacancies(session);
 
   useEffect(() => {
     void fetchDatasets().then(setDatasets);
@@ -1758,11 +2084,6 @@ function Workspace({
     void fetchObjects().then(setObjects);
     void fetchDemoRun("regional-passport").then(setLastRun);
   }, []);
-
-  const domains = useMemo(
-    () => Array.from(new Set(datasets.map((dataset) => dataset.domain))).sort(),
-    [datasets],
-  );
 
   const navItems: Array<{ id: View; label: string; icon: typeof MapIcon }> = [
     { id: "map", label: "Карта", icon: MapIcon },
@@ -1796,7 +2117,7 @@ function Workspace({
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h1>Цифровой двойник России v0.1.6</h1>
+            <h1>Цифровой двойник России v0.1.7</h1>
             <p>
               Открытый контур: каталоги, сценарии, отчёты и аудит на
               демо-данных.
@@ -1817,12 +2138,15 @@ function Workspace({
           </div>
         </header>
 
-        {view === "map" && <MapView objects={objects} session={session} />}
+        {view === "map" && (
+          <MapView objects={objects} session={session} vacancies={vacancies} />
+        )}
         {view === "scenarios" && (
           <ScenariosView
             session={session}
             scenarios={scenarios}
             onRun={setLastRun}
+            onOpenReports={() => setView("reports")}
           />
         )}
         {view === "catalog" && (
@@ -1831,12 +2155,10 @@ function Workspace({
         {view === "reports" && (
           <ReportsView
             run={lastRun}
-            metrics={{
-              datasets: datasets.length,
-              domains: domains.length,
-              scenarios: scenarios.length,
-              objects: objects.length,
-            }}
+            datasets={datasets}
+            scenarios={scenarios}
+            objects={objects}
+            vacancies={vacancies}
           />
         )}
         {view === "account" && (

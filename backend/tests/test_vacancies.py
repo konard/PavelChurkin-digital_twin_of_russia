@@ -47,6 +47,7 @@ def _api_vacancy(identifier: str, job: str, lat: str, lng: str) -> dict:
         "currency": "RUB",
         "vac_url": f"https://trudvsem.ru/vacancy/{identifier}",
         "date_modify": "2026-06-26",
+        "creation-date": "2026-06-20",
         "addresses": {"address": [{"lat": lat, "lng": lng, "location": "Москва"}]},
     }
 
@@ -97,6 +98,16 @@ def test_vacancy_from_api_extracts_coordinates_and_fields() -> None:
     assert vacancy.has_point
     assert vacancy.lat == 55.75 and vacancy.lon == 37.61
     assert vacancy.url.endswith("a1")
+
+
+def test_vacancy_from_api_splits_created_and_modified_dates() -> None:
+    # issue #25: дату создания храним отдельно от даты изменения — она нужна
+    # для фильтра по дате и отчёта «Анализ вакансий».
+    vacancy = vacancy_from_api(_api_vacancy("a1", "Сварщик", "55.75", "37.61"))
+
+    assert vacancy is not None
+    assert vacancy.created_at == "2026-06-20"
+    assert vacancy.modified_at == "2026-06-26"
 
 
 def test_vacancy_from_api_skips_records_without_id() -> None:

@@ -195,6 +195,10 @@ class VacancyService:
                 # (issue #23): фронтенд прячет точки ниже выбранной зарплаты.
                 "salary_value": vacancy.salary_value,
                 "url": vacancy.url,
+                # Даты создания и изменения вакансии (issue #25): нужны для
+                # фильтра по дате и отчёта «Анализ вакансий Работа России».
+                "created_at": vacancy.created_at,
+                "modified_at": vacancy.modified_at,
             },
         }
 
@@ -305,6 +309,7 @@ class VacancyService:
                 "salary_to",
                 "currency",
                 "url",
+                "created_at",
                 "modified_at",
             ]
         )
@@ -321,6 +326,7 @@ class VacancyService:
                     "" if vacancy.salary_to is None else int(vacancy.salary_to),
                     vacancy.currency,
                     vacancy.url,
+                    vacancy.created_at or "",
                     vacancy.modified_at or "",
                 ]
             )

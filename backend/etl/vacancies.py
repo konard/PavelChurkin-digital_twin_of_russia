@@ -67,7 +67,8 @@ _COLUMN_CANDIDATES: dict[str, tuple[str, ...]] = {
     "url": ("url", "vac_url", "link", "href"),
     "lat": ("lat", "latitude"),
     "lon": ("lon", "lng", "longitude"),
-    "modified_at": ("modified_at", "modified", "modifiedfrom", "date_modify", "creation_date"),
+    "modified_at": ("modified_at", "modified", "modifiedfrom", "date_modify"),
+    "created_at": ("created_at", "creation_date", "creation-date", "creationdate", "date_create"),
 }
 
 
@@ -84,6 +85,9 @@ class Vacancy:
     currency: str = "RUB"
     url: str = ""
     modified_at: str | None = None
+    # Дата создания (публикации) вакансии — отдельно от даты изменения
+    # (issue #25): нужна для фильтра по дате и отчёта «Анализ вакансий».
+    created_at: str | None = None
 
     @property
     def has_point(self) -> bool:
@@ -199,6 +203,7 @@ def iter_vacancies(
             currency=mapping.value(row, "currency") or "RUB",
             url=mapping.value(row, "url"),
             modified_at=mapping.value(row, "modified_at") or None,
+            created_at=mapping.value(row, "created_at") or None,
         )
         yield vacancy
         emitted += 1
@@ -289,6 +294,9 @@ def vacancy_from_api(payload: dict) -> Vacancy | None:
         url=str(payload.get("vac_url") or "").strip(),
         modified_at=(
             str(payload.get("date_modify") or payload.get("creation-date") or "").strip() or None
+        ),
+        created_at=(
+            str(payload.get("creation-date") or payload.get("creation_date") or "").strip() or None
         ),
     )
 
