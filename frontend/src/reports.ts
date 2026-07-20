@@ -52,6 +52,12 @@ function salaryOf(feature: Feature): number | null {
   return typeof value === "number" && value > 0 ? value : null;
 }
 
+// Город вакансии для рейтингов по городам (issue #27). Бэкенд выделяет его из
+// адреса по маркеру «г»; если город не распознан, там уже лежит регион.
+function cityOf(feature: Feature): string {
+  return feature.properties.city || feature.properties.region || "—";
+}
+
 // Разбор даты из источника («2026-01-12» или «2026-06-26T13:40:00+0300»).
 // ``null`` — дата отсутствует или не распознана, такие вакансии в рейтинги по
 // дате не попадают.
@@ -81,9 +87,11 @@ export function buildVacancyReport(
   const limit = Math.max(1, Math.round(topN));
 
   const professionCounts = new Map<string, number>();
-  const regionCounts = new Map<string, number>();
-  const regionSalarySum = new Map<string, number>();
-  const regionSalaryN = new Map<string, number>();
+  // Рейтинги «по городам» (issue #27) агрегируются по городу из адреса, а не по
+  // региону.
+  const cityCounts = new Map<string, number>();
+  const citySalarySum = new Map<string, number>();
+  const citySalaryN = new Map<string, number>();
 
   for (const feature of features) {
     const props = feature.properties;
@@ -92,12 +100,12 @@ export function buildVacancyReport(
       profession,
       (professionCounts.get(profession) ?? 0) + 1,
     );
-    const region = props.region || "—";
-    regionCounts.set(region, (regionCounts.get(region) ?? 0) + 1);
+    const city = cityOf(feature);
+    cityCounts.set(city, (cityCounts.get(city) ?? 0) + 1);
     const salary = salaryOf(feature);
     if (salary !== null) {
-      regionSalarySum.set(region, (regionSalarySum.get(region) ?? 0) + salary);
-      regionSalaryN.set(region, (regionSalaryN.get(region) ?? 0) + 1);
+      citySalarySum.set(city, (citySalarySum.get(city) ?? 0) + salary);
+      citySalaryN.set(city, (citySalaryN.get(city) ?? 0) + 1);
     }
   }
 
@@ -152,21 +160,21 @@ export function buildVacancyReport(
     .sort((a, b) => b.avgSalary - a.avgSalary)
     .slice(0, limit);
 
-  const topCitiesByCount = topCounts(regionCounts, limit);
+  const topCitiesByCount = topCounts(cityCounts, limit);
 
-  const topCitiesBySalary: CityMetric[] = Array.from(regionSalaryN.keys())
+  const topCitiesBySalary: CityMetric[] = Array.from(citySalaryN.keys())
     .map((name) => {
-      const n = regionSalaryN.get(name) ?? 0;
+      const n = citySalaryN.get(name) ?? 0;
       return {
         name,
-        value: n > 0 ? Math.round((regionSalarySum.get(name) ?? 0) / n) : 0,
+        value: n > 0 ? Math.round((citySalarySum.get(name) ?? 0) / n) : 0,
       };
     })
     .sort((a, b) => b.value - a.value)
     .slice(0, limit);
 
   // Топ городов по «оплачиваемым среди востребованных»: средняя зарплата
-  // вакансий востребованных профессий по каждому региону.
+  // вакансий востребованных профессий по каждому городу.
   const cityDemandSum = new Map<string, number>();
   const cityDemandN = new Map<string, number>();
   for (const feature of features) {
@@ -178,9 +186,9 @@ export function buildVacancyReport(
     if (salary === null) {
       continue;
     }
-    const region = feature.properties.region || "—";
-    cityDemandSum.set(region, (cityDemandSum.get(region) ?? 0) + salary);
-    cityDemandN.set(region, (cityDemandN.get(region) ?? 0) + 1);
+    const city = cityOf(feature);
+    cityDemandSum.set(city, (cityDemandSum.get(city) ?? 0) + salary);
+    cityDemandN.set(city, (cityDemandN.get(city) ?? 0) + 1);
   }
   const topCitiesByDemandPaid: CityMetric[] = Array.from(cityDemandN.keys())
     .map((name) => {

@@ -113,6 +113,12 @@ export type VacancyFeatureCollection = GeoJSON.FeatureCollection<
     profession: string;
     employer: string;
     region: string;
+    /**
+     * Город из адреса вакансии (issue #27): выделяется на бэкенде из поля
+     * ``location`` по маркеру «г». Если город не распознан, подставляется
+     * регион. В отчёте города берутся именно отсюда.
+     */
+    city: string;
     salary: string | null;
     /**
      * Числовое значение зарплаты (нижняя граница) для клиентского фильтра по

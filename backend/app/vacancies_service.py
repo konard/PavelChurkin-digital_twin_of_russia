@@ -190,6 +190,10 @@ class VacancyService:
                 "profession": vacancy.profession,
                 "employer": vacancy.employer,
                 "region": vacancy.region,
+                # Город из адреса вакансии (issue #27): в отчёте города берутся
+                # именно отсюда. Если город не распознан — подставляем регион,
+                # чтобы у точки всегда был человекочитаемый населённый пункт.
+                "city": vacancy.city or vacancy.region,
                 "salary": _format_salary(vacancy),
                 # Числовое значение зарплаты для клиентского фильтра по порогу
                 # (issue #23): фронтенд прячет точки ниже выбранной зарплаты.
@@ -303,6 +307,7 @@ class VacancyService:
                 "profession",
                 "employer",
                 "region",
+                "city",
                 "latitude",
                 "longitude",
                 "salary_from",
@@ -320,6 +325,7 @@ class VacancyService:
                     vacancy.profession,
                     vacancy.employer,
                     vacancy.region,
+                    vacancy.city or vacancy.region,
                     "" if vacancy.lat is None else f"{vacancy.lat:.6f}",
                     "" if vacancy.lon is None else f"{vacancy.lon:.6f}",
                     "" if vacancy.salary_from is None else int(vacancy.salary_from),

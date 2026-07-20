@@ -15,6 +15,7 @@ from backend.app.vacancies_service import (
 from backend.etl.vacancies import (
     REFRESH_INTERVAL_HOURS,
     Vacancy,
+    extract_city,
     fetch_api_page,
     fetch_api_vacancies,
     iter_vacancies,
@@ -112,6 +113,65 @@ def test_vacancy_from_api_splits_created_and_modified_dates() -> None:
 
 def test_vacancy_from_api_skips_records_without_id() -> None:
     assert vacancy_from_api({"job-name": "Без id"}) is None
+
+
+# --- Выделение города из адреса (issue #27) ---------------------------------
+
+
+def test_extract_city_takes_name_after_g_marker() -> None:
+    # Пример из issue #27: город после отдельно стоящей «г» и до запятой.
+    location = (
+        "Краснодарский край, Славянский район, г Славянск-на-Кубани, " "Отдельская улица, 324"
+    )
+    assert extract_city(location) == "Славянск-на-Кубани"
+
+
+def test_extract_city_handles_dot_and_leading_marker() -> None:
+    assert extract_city("Красноярский край, г Красноярск, Маяковского пер.") == "Красноярск"
+    assert extract_city("г. Москва, Тверская улица") == "Москва"
+    assert extract_city("город Санкт-Петербург, Невский проспект") == "Санкт-Петербург"
+
+
+def test_extract_city_returns_empty_without_marker() -> None:
+    assert extract_city("Московская область, Одинцовский район") == ""
+    assert extract_city("") == ""
+    assert extract_city(None) == ""
+
+
+def test_vacancy_from_api_extracts_city_from_address() -> None:
+    payload = _api_vacancy("a1", "Дворник", "55.99", "92.96")
+    payload["addresses"]["address"][0][
+        "location"
+    ] = "Красноярский край, г Красноярск, Маяковского переулок, дом: Д.9;"
+    vacancy = vacancy_from_api(payload)
+
+    assert vacancy is not None
+    assert vacancy.city == "Красноярск"
+    # Регион остаётся отдельным полем.
+    assert vacancy.region == "Москва"
+
+
+def test_service_feature_exposes_city() -> None:
+    payload = _api_vacancy("v", "Дворник", "55.99", "92.96")
+    payload["addresses"]["address"][0]["location"] = "Красноярский край, г Красноярск, ул. Ленина"
+    pool = [vacancy_from_api(payload)]
+
+    def fetcher(count: int) -> tuple[list, int]:
+        return [v for v in pool[:count] if v is not None], 10
+
+    collection = VacancyService(fetcher=fetcher).geojson(count=10)
+    assert collection["features"][0]["properties"]["city"] == "Красноярск"
+
+
+def test_service_feature_city_falls_back_to_region() -> None:
+    # Город не распознан из адреса → в свойстве ``city`` оказывается регион.
+    pool = [Vacancy("v", "Тест", "ООО", "Москва", 55.0, 37.0, 100000, 150000)]
+
+    def fetcher(count: int) -> tuple[list, int]:
+        return pool[:count], 10
+
+    collection = VacancyService(fetcher=fetcher).geojson(count=10)
+    assert collection["features"][0]["properties"]["city"] == "Москва"
 
 
 def test_parse_api_response_returns_total_and_vacancies() -> None:

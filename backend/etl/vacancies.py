@@ -21,6 +21,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import time
 import urllib.request
 from collections.abc import Callable, Iterable, Iterator
@@ -72,6 +73,33 @@ _COLUMN_CANDIDATES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Город в адресе вакансии помечен отдельно стоящей буквой «г» (issue #27):
+# например, «Краснодарский край, Славянский район, г Славянск-на-Кубани,
+# Отдельская улица, 324» → «Славянск-на-Кубани». Название города начинается
+# после маркера «г»/«г.»/«гор.»/«город» и заканчивается перед следующей запятой.
+_CITY_MARKER_RE = re.compile(
+    r"(?:^|,)\s*(?:г|гор|город)\.?\s+([^,]+)",
+    re.IGNORECASE,
+)
+
+
+def extract_city(location: str | None) -> str:
+    """Выделить город из строки адреса вакансии (issue #27).
+
+    Город в выгрузке «Работа России» помечается отдельно стоящей буквой «г»
+    (реже «гор.»/«город»). Функция берёт текст после этого маркера и до
+    ближайшей запятой. Если маркер не найден, возвращается пустая строка —
+    вызывающий код подставляет регион как запасной вариант.
+    """
+
+    if not location:
+        return ""
+    match = _CITY_MARKER_RE.search(location)
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
 @dataclass(frozen=True)
 class Vacancy:
     id: str
@@ -84,6 +112,9 @@ class Vacancy:
     salary_to: float | None = None
     currency: str = "RUB"
     url: str = ""
+    # Город из адреса вакансии (issue #27). Выделяется из поля ``location`` по
+    # маркеру «г»; пустая строка — город не распознан, тогда берётся регион.
+    city: str = ""
     modified_at: str | None = None
     # Дата создания (публикации) вакансии — отдельно от даты изменения
     # (issue #25): нужна для фильтра по дате и отчёта «Анализ вакансий».
@@ -191,11 +222,15 @@ def iter_vacancies(
         profession_value = mapping.value(row, "profession")
         if needle and needle not in profession_value.lower():
             continue
+        region_value = mapping.value(row, "region")
         vacancy = Vacancy(
             id=mapping.value(row, "id") or f"vac-{emitted}",
             profession=profession_value or "Без названия",
             employer=mapping.value(row, "employer"),
-            region=mapping.value(row, "region"),
+            region=region_value,
+            # Город из адреса, если региональная колонка содержит полный адрес
+            # с маркером «г» (issue #27).
+            city=extract_city(region_value),
             lat=_to_float(mapping.value(row, "lat")),
             lon=_to_float(mapping.value(row, "lon")),
             salary_from=_to_float(mapping.value(row, "salary_from")),
@@ -276,6 +311,9 @@ def vacancy_from_api(payload: dict) -> Vacancy | None:
     first = addresses[0] if addresses else {}
     lat = _to_float(str(first.get("lat") or ""))
     lon = _to_float(str(first.get("lng") or ""))
+    # Город берём из адреса (issue #27): в поле ``location`` он помечен
+    # отдельно стоящей буквой «г».
+    city = extract_city(str(first.get("location") or ""))
     company = payload.get("company") or {}
     region = payload.get("region") or {}
     identifier = str(payload.get("id") or "").strip()
@@ -292,6 +330,7 @@ def vacancy_from_api(payload: dict) -> Vacancy | None:
         salary_to=_to_float(str(payload.get("salary_max") or "")),
         currency=str(payload.get("currency") or "RUB").strip() or "RUB",
         url=str(payload.get("vac_url") or "").strip(),
+        city=city,
         modified_at=(
             str(payload.get("date_modify") or payload.get("creation-date") or "").strip() or None
         ),
