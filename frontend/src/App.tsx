@@ -4,18 +4,22 @@ import {
   Archive,
   BarChart3,
   Briefcase,
+  Building2,
   CalendarClock,
   ChevronDown,
   Download,
   FileDown,
+  FlaskConical,
+  Globe,
   Home,
   KeyRound,
+  Landmark,
   Layers,
+  Lock,
   LogOut,
   Map as MapIcon,
   Play,
   Search,
-  ShieldCheck,
   UserRound,
   X,
 } from "lucide-react";
@@ -795,7 +799,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         <div className="brand login-brand">DTR</div>
         <h1>Цифровой двойник России</h1>
         <p className="login-sub">
-          Открытый контур v0.1.7. Войдите как оператор платформы или другая роль
+          Открытый контур v0.1.8. Войдите как оператор платформы или другая роль
           — либо продолжите как гость без пароля.
         </p>
 
@@ -1424,18 +1428,21 @@ function MapView({
 function ScenariosView({
   session,
   scenarios,
+  runs,
   onRun,
   onOpenReports,
 }: {
   session: Session;
   scenarios: Scenario[];
+  // История запусков сценариев (issue #27): каждый запуск добавляет отдельный
+  // отчёт, поэтому здесь показывается несколько результатов, а не один.
+  runs: ScenarioRun[];
   onRun: (run: ScenarioRun) => void;
   // Переход к разделу отчётов (issue #25): генерация отчётов вынесена вместе со
   // сценариями, но открывается в модуле «Отчёты».
   onOpenReports: () => void;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [run, setRun] = useState<ScenarioRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1443,7 +1450,6 @@ function ScenariosView({
     setActiveId(scenario.id);
     setBusy(true);
     setError(null);
-    setRun(null);
     try {
       let result: ScenarioRun | null;
       if (session.can_write) {
@@ -1454,7 +1460,6 @@ function ScenariosView({
       if (!result) {
         throw new Error("Результат сценария недоступен.");
       }
-      setRun(result);
       onRun(result);
     } catch (caught) {
       setError(
@@ -1523,13 +1528,22 @@ function ScenariosView({
       </div>
 
       {error && <p className="login-error">{error}</p>}
-      {run && (
+      {runs.length > 0 && (
         <div className="panel inner-panel">
           <div className="section-title">
             <FileDown size={18} />
-            <h2>Результат: {run.scenario_id}</h2>
+            <h2>Отчёты по сценариям ({runs.length})</h2>
           </div>
-          <RunResultView run={run} />
+          {/* Несколько отчётов накапливаются с момента нажатия «Запустить»
+              (issue #27): новый запуск добавляется сверху отдельным блоком. */}
+          {runs.map((run, index) => (
+            <div key={run.id} className="scenario-run">
+              <h3>
+                {runs.length - index}. {run.scenario_id}
+              </h3>
+              <RunResultView run={run} />
+            </div>
+          ))}
         </div>
       )}
     </section>
@@ -1663,6 +1677,35 @@ function downloadTextFile(filename: string, text: string, mime: string): void {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+// Сериализовать отчёт по запуску сценария в Markdown (issue #27). Каждый
+// накопленный запуск можно скачать отдельным файлом прямо из раздела «Отчёты».
+function scenarioRunToMarkdown(run: ScenarioRun): string {
+  const lines: string[] = [];
+  lines.push(`# Отчёт по сценарию «${run.scenario_id}»`);
+  lines.push("");
+  lines.push(String(run.result.summary ?? ""));
+  lines.push("");
+  lines.push("## Версии");
+  lines.push("");
+  lines.push(`- Версия датасета: ${run.dataset_version}`);
+  lines.push(`- Версия модели: ${run.model_version}`);
+  lines.push(`- Версия сценария: ${run.scenario_version}`);
+  lines.push("");
+  lines.push("## Источники и ограничения");
+  lines.push("");
+  for (const source of run.result.sources) {
+    lines.push(
+      `- ${source.source} (${source.dataset_id}), версия ${source.source_version}, ` +
+        `лицензия: ${source.license}`,
+    );
+    for (const limitation of source.known_limitations) {
+      lines.push(`  - ограничение: ${limitation}`);
+    }
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
 // Раскрывающийся модуль отчёта (issue #25): заголовок-кнопка сворачивает и
@@ -1871,13 +1914,14 @@ function VacancyAnalysisReport({
 }
 
 function ReportsView({
-  run,
+  runs,
   datasets,
   scenarios,
   objects,
   vacancies,
 }: {
-  run: ScenarioRun | null;
+  // История запусков сценариев (issue #27): несколько отчётов вместо одного.
+  runs: ScenarioRun[];
   datasets: DatasetPassport[];
   scenarios: Scenario[];
   objects: TwinObject[];
@@ -1961,20 +2005,40 @@ function ReportsView({
         onDownload={downloadReport}
       />
 
-      <ReportModule
-        title="Отчёт по сценарию"
-        icon={<FileDown size={16} />}
-        subtitle={run ? run.scenario_id : "нет запуска"}
-      >
-        {run ? (
-          <RunResultView run={run} />
-        ) : (
+      {/* Несколько отчётов по сценариям (issue #27): каждый запуск сценария —
+          отдельный раскрывающийся модуль, новые сверху. */}
+      {runs.length === 0 ? (
+        <ReportModule
+          title="Отчёты по сценариям"
+          icon={<FileDown size={16} />}
+          subtitle="нет запусков"
+        >
           <p className="panel-note">
             Запустите или откройте сценарий на вкладке «Сценарии», чтобы здесь
-            появился отчёт с источниками и версиями данных.
+            появился отчёт с источниками и версиями данных. Каждый новый запуск
+            добавляет отдельный отчёт.
           </p>
-        )}
-      </ReportModule>
+        </ReportModule>
+      ) : (
+        runs.map((run, index) => (
+          <ReportModule
+            key={run.id}
+            title={`Отчёт по сценарию №${runs.length - index}`}
+            icon={<FileDown size={16} />}
+            subtitle={run.scenario_id}
+            defaultOpen={index === 0}
+            onDownload={() =>
+              downloadTextFile(
+                `scenario-${run.scenario_id}-${run.id}.md`,
+                scenarioRunToMarkdown(run),
+                "text/markdown;charset=utf-8",
+              )
+            }
+          >
+            <RunResultView run={run} />
+          </ReportModule>
+        ))
+      )}
     </section>
   );
 }
@@ -2062,6 +2126,147 @@ function AccountView({
   );
 }
 
+// Контуры цифрового двойника (issue #27). Работает только открытый контур;
+// остальные — заглушки «в разработке» согласно дорожной карте (v1.0.0 — все
+// контуры). Иконка и описание помогают пользователю понять назначение контура.
+type ContourId =
+  | "open"
+  | "departmental"
+  | "closed"
+  | "infrastructure"
+  | "research";
+
+interface ContourInfo {
+  id: ContourId;
+  label: string;
+  icon: typeof Globe;
+  description: string;
+  audience: string;
+}
+
+const CONTOURS: ContourInfo[] = [
+  {
+    id: "open",
+    label: "Открытый",
+    icon: Globe,
+    description:
+      "Открытые и агрегированные демо-данные: каталог, слои карты, сценарии, " +
+      "отчёты и аудит. Единственный рабочий контур прототипа.",
+    audience: "Граждане, бизнес, разработчики",
+  },
+  {
+    id: "departmental",
+    label: "Ведомственный",
+    icon: Building2,
+    description:
+      "Обмен данными между министерствами и ведомствами по межведомственным " +
+      "соглашениям. Планируется: разграничение доступа по ведомствам и ролям.",
+    audience: "Министерства и ведомства",
+  },
+  {
+    id: "closed",
+    label: "Закрытый",
+    icon: Lock,
+    description:
+      "Чувствительные и закрытые данные с усиленной аутентификацией и " +
+      "шифрованием (WSS/TLS). Планируется: строгий контроль доступа и аудит.",
+    audience: "Уполномоченные операторы",
+  },
+  {
+    id: "infrastructure",
+    label: "Инфраструктурный",
+    icon: Landmark,
+    description:
+      "Схемы и телеметрия объектов критической инфраструктуры. Планируется: " +
+      "потоковые слои от датчиков и операторов инфраструктуры.",
+    audience: "Операторы инфраструктуры",
+  },
+  {
+    id: "research",
+    label: "Исследовательский",
+    icon: FlaskConical,
+    description:
+      "Песочница для моделей и исследований на обезличенных данных. " +
+      "Планируется: запуск экспериментов и сравнение сценариев.",
+    audience: "Исследователи и аналитики",
+  },
+];
+
+// Заглушка неоткрытого контура (issue #27): контур ещё не реализован, поэтому
+// показывается пояснение и отсылка к дорожной карте.
+function ContourStub({ contour }: { contour: ContourInfo }) {
+  const Icon = contour.icon;
+  return (
+    <section className="panel contour-stub">
+      <div className="section-title">
+        <Icon size={18} />
+        <h2>{contour.label} контур</h2>
+      </div>
+      <div className="contour-stub-body">
+        <span className="contour-stub-badge">
+          <Lock size={14} /> Заглушка · в разработке
+        </span>
+        <p>{contour.description}</p>
+        <dl className="run-versions">
+          <div>
+            <dt>Аудитория</dt>
+            <dd>{contour.audience}</dd>
+          </div>
+          <div>
+            <dt>Статус</dt>
+            <dd>Не реализован в прототипе v0.1</dd>
+          </div>
+          <div>
+            <dt>Дорожная карта</dt>
+            <dd>Все контуры — в версии 1.0.0</dd>
+          </div>
+        </dl>
+        <p className="panel-note">
+          В прототипе доступен только открытый контур. Переключитесь на
+          «Открытый», чтобы работать с картой, сценариями и отчётами.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+// Переключатель контуров в шапке (issue #27).
+function ContourSwitcher({
+  active,
+  onSelect,
+}: {
+  active: ContourId;
+  onSelect: (contour: ContourId) => void;
+}) {
+  return (
+    <nav className="contour-switcher" aria-label="Контуры">
+      {CONTOURS.map((contour) => {
+        const Icon = contour.icon;
+        const isOpen = contour.id === "open";
+        return (
+          <button
+            key={contour.id}
+            type="button"
+            className={`contour-tab${active === contour.id ? " active" : ""}${
+              isOpen ? "" : " stub"
+            }`}
+            onClick={() => onSelect(contour.id)}
+            title={
+              isOpen
+                ? contour.description
+                : `${contour.description} (заглушка — в разработке)`
+            }
+          >
+            <Icon size={15} />
+            <span>{contour.label}</span>
+            {!isOpen && <Lock size={12} className="contour-tab-lock" />}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function Workspace({
   session,
   onLogout,
@@ -2070,10 +2275,19 @@ function Workspace({
   onLogout: () => void;
 }) {
   const [view, setView] = useState<View>("map");
+  // Активный контур (issue #27). По умолчанию — открытый; остальные показывают
+  // заглушку.
+  const [contour, setContour] = useState<ContourId>("open");
   const [datasets, setDatasets] = useState<DatasetPassport[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [objects, setObjects] = useState<TwinObject[]>([]);
-  const [lastRun, setLastRun] = useState<ScenarioRun | null>(null);
+  // История запусков сценариев (issue #27): раньше хранился только последний
+  // запуск, поэтому отчёт по сценарию был всегда один. Теперь каждый запуск
+  // добавляет отдельный отчёт — с момента нажатия «Запустить» их накапливается
+  // несколько (новые сверху).
+  const [runs, setRuns] = useState<ScenarioRun[]>([]);
+  const addRun = (run: ScenarioRun) =>
+    setRuns((previous) => [run, ...previous]);
   // Кэш вакансий поднят на уровень рабочего пространства (issue #25, п. 2):
   // результаты опроса API сохраняются при переключении разделов.
   const vacancies = useVacancies(session);
@@ -2082,7 +2296,11 @@ function Workspace({
     void fetchDatasets().then(setDatasets);
     void fetchScenarios().then(setScenarios);
     void fetchObjects().then(setObjects);
-    void fetchDemoRun("regional-passport").then(setLastRun);
+    void fetchDemoRun("regional-passport").then((run) => {
+      if (run) {
+        setRuns([run]);
+      }
+    });
   }, []);
 
   const navItems: Array<{ id: View; label: string; icon: typeof MapIcon }> = [
@@ -2117,17 +2335,14 @@ function Workspace({
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h1>Цифровой двойник России v0.1.7</h1>
+            <h1>Цифровой двойник России v0.1.8</h1>
             <p>
               Открытый контур: каталоги, сценарии, отчёты и аудит на
               демо-данных.
             </p>
           </div>
           <div className="topbar-right">
-            <div className="status-pill">
-              <ShieldCheck size={17} />
-              открытый контур
-            </div>
+            <ContourSwitcher active={contour} onSelect={setContour} />
             <div className="role-pill">
               <UserRound size={15} />
               {roleLabels[session.role] ?? session.role}
@@ -2138,31 +2353,46 @@ function Workspace({
           </div>
         </header>
 
-        {view === "map" && (
-          <MapView objects={objects} session={session} vacancies={vacancies} />
-        )}
-        {view === "scenarios" && (
-          <ScenariosView
-            session={session}
-            scenarios={scenarios}
-            onRun={setLastRun}
-            onOpenReports={() => setView("reports")}
+        {contour !== "open" ? (
+          <ContourStub
+            contour={
+              CONTOURS.find((item) => item.id === contour) ?? CONTOURS[0]
+            }
           />
-        )}
-        {view === "catalog" && (
-          <CatalogView datasets={datasets} session={session} />
-        )}
-        {view === "reports" && (
-          <ReportsView
-            run={lastRun}
-            datasets={datasets}
-            scenarios={scenarios}
-            objects={objects}
-            vacancies={vacancies}
-          />
-        )}
-        {view === "account" && (
-          <AccountView session={session} onLogout={onLogout} />
+        ) : (
+          <>
+            {view === "map" && (
+              <MapView
+                objects={objects}
+                session={session}
+                vacancies={vacancies}
+              />
+            )}
+            {view === "scenarios" && (
+              <ScenariosView
+                session={session}
+                scenarios={scenarios}
+                runs={runs}
+                onRun={addRun}
+                onOpenReports={() => setView("reports")}
+              />
+            )}
+            {view === "catalog" && (
+              <CatalogView datasets={datasets} session={session} />
+            )}
+            {view === "reports" && (
+              <ReportsView
+                runs={runs}
+                datasets={datasets}
+                scenarios={scenarios}
+                objects={objects}
+                vacancies={vacancies}
+              />
+            )}
+            {view === "account" && (
+              <AccountView session={session} onLogout={onLogout} />
+            )}
+          </>
         )}
       </section>
     </main>

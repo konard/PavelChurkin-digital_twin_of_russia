@@ -305,6 +305,92 @@ h1 {
   color: #b91c1c;
 }
 
+/* ---------- Контуры (issue #27) ---------- */
+.contour-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.contour-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.contour-tab:hover {
+  background: #f1f5f9;
+}
+
+.contour-tab.active {
+  border-color: #166534;
+  background: #ecfdf5;
+  color: #166534;
+}
+
+.contour-tab.stub {
+  color: #94a3b8;
+}
+
+.contour-tab.stub.active {
+  border-color: #b45309;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.contour-tab-lock {
+  opacity: 0.75;
+}
+
+.contour-stub .contour-stub-body {
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.contour-stub-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 4px 10px;
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* Блок отдельного отчёта по сценарию в списке (issue #27). */
+.scenario-run {
+  padding: 14px 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.scenario-run:first-of-type {
+  border-top: none;
+}
+
+.scenario-run h3 {
+  margin-bottom: 8px;
+  color: #334155;
+  font-size: 14px;
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
