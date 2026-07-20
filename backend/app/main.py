@@ -34,7 +34,7 @@ from backend.app.vacancies_service import (
     VacancyService,
 )
 
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 
 app = FastAPI(
     title="API Цифрового двойника России",
